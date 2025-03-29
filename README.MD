@@ -10,7 +10,27 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/magicdude4eva/calendar-sync.svg)](https://github.com/magicdude4eva/calendar-sync/commits/master)
 ![License](https://img.shields.io/github/license/magicdude4eva/calendar-sync)
 
-> Sync ICS (.ics) feeds (e.g. Müllabfuhr, Feiertage, F1) to your 📆 CalDAV calendar (e.g. mailbox.org) with emoji support, deduplication, Docker, yearly recurring events, and more.
+`calendar-sync` is a flexible utility to sync one or more ICS feeds (iCalendar) into a CalDAV-compatible calendar — ideal for mailbox.org, Nextcloud, Synology, and more.
+
+It supports features such as:
+- ✅ Deterministic UID generation for clean deduplication
+- 📅 Emoji mapping for more readable calendar events
+- 🔁 Full support for recurring events (e.g., yearly holidays)
+- 🧼 Optional cleanup of previously imported events
+- 📍 Location-based filtering (e.g., for regional holidays in Austria)
+- 🐳 Docker deployment for simple automation
+- 💡 Dry-run mode to preview changes without writing
+- 🕓 Timezone-aware handling for accurate scheduling
+
+This is perfect for importing:
+- 🗑️ Municipal waste collection schedules (e.g., Müll App)
+- 🇦🇹 Austrian public holidays
+- 🏎️ Formula 1 calendar with free practice, qualifying, and GP events
+
+Unlike subscription-based ICS calendars, this tool **writes events directly into your calendar**, giving you full control over notifications, offline visibility, and data retention.
+
+Use it on your Synology NAS, a server, or as a cron-triggered Docker container — and never miss a bin collection or Grand Prix again.
+
 
 <video src="https://github.com/user-attachments/assets/59d1b6f4-32ad-4133-8826-021ca2ea3030" autoplay muted loop></video>
 
