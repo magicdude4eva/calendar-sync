@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  calendar-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: calendar-sync
+    volumes:
+      - ./config.json:/app/config.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "src/calendar_sync.py", "--import"]

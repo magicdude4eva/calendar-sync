@@ -1,0 +1,38 @@
+{
+    "caldav_url": "YOUR_CALDAV_CALENDAR_URL_FROM_MAILBOX_ORG",
+    "username": "YOUR_APPLICATION_USERNAME",
+    "password": "YOUR_APPLICATION_PASSWORD",
+    "timezone": "Europe/Vienna",
+    "uid_prefix": "ICS-",
+    "future_event_limit_days": 365,
+    "ics_feeds": [
+      {
+        "url": "https://app.muellapp.com/ical/74418?area_filter=145382%2C145383%2C151900&reminder&day=1&time=18:00",
+        "emoji_mapping": {
+          "Restmüll": "🗑️",
+          "Papier": "♻️",
+          "Gelber Sack": "🟡"
+        }
+      },
+      {
+        "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
+        "import_locations": "K,St",
+        "emoji_mapping": {
+          "§": "🇦🇹",
+          "default": "🗓️"
+        }
+      },
+      {
+        "url": "https://files-f1.motorsportcalendars.com/f1-calendar_p1_p2_p3_qualifying_sprint_gp_alarm-30.ics",
+        "emoji_mapping": {
+          "FP1": "🏎️",
+          "FP2": "🏎️",
+          "FP3": "🏎️",
+          "Sprint Qualifying": "⏱️",
+          "Sprint": "⚡",
+          "Qualifying": "⏱️",
+          "Grand Prix": "🏆"
+        }
+      }
+    ]
+  }
