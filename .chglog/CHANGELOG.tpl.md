@@ -1,40 +1,36 @@
+# CHANGELOG
+
 {{ range .Versions }}
-<a name="{{ .Tag.Name }}"></a>
-## {{ if .Tag.Previous }}[{{ .Tag.Name }}]({{ $.Info.RepositoryURL }}/compare/{{ .Tag.Previous.Name }}...{{ .Tag.Name }}){{ else }}{{ .Tag.Name }}{{ end }}
+## {{ .Tag.Name }} - {{ datetime "2006-01-02" .Tag.Date }}
+{{ if .Tag.Subject }}
+> {{ .Tag.Subject }}
+{{ end }}
 
-> {{ datetime "2006-01-02" .Tag.Date }}
-
-{{ range .CommitGroups -}}
+{{ range .CommitGroups }}
 ### {{ .Title }}
 
-{{ range .Commits -}}
-* {{ .Subject }}
+{{ range .Commits }}
+- {{ .Subject }}
 {{ end }}
-{{ end -}}
+{{ end }}
 
-{{- if .RevertCommits -}}
+{{ if .RevertCommits }}
 ### Reverts
 
-{{ range .RevertCommits -}}
-* {{ .Revert.Header }}
+{{ range .RevertCommits }}
+- {{ .Revert.Subject }}
 {{ end }}
-{{ end -}}
-
-{{- if .MergeCommits -}}
-### Pull Requests
-
-{{ range .MergeCommits -}}
-* {{ .Header }}
 {{ end }}
-{{ end -}}
 
-{{- if .NoteGroups -}}
-{{ range .NoteGroups -}}
-### {{ .Title }}
+{{ if .NoteGroups }}
+### Notes
+
+{{ range .NoteGroups }}
+#### {{ .Title }}
 
 {{ range .Notes }}
-{{ .Body }}
+- {{ .Body }}
 {{ end }}
-{{ end -}}
-{{ end -}}
-{{ end -}}
+{{ end }}
+{{ end }}
+{{ end }}
