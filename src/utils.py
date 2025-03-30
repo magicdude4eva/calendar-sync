@@ -1,3 +1,5 @@
+# utils.py
+
 import requests
 from ics import Calendar, Event
 from ics.alarm import DisplayAlarm
@@ -7,6 +9,7 @@ import hashlib
 import logging
 import re
 import warnings
+from calendar import monthcalendar, SUNDAY, MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY
 
 # Suppress FutureWarnings from ics package
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -81,6 +84,67 @@ def expand_yearly_events(event, until_date):
     expanded_dates = [event.begin.replace(year=year).datetime for year in range(current_year, end_year + 1)]
     logger.debug(f"Expanding yearly event '{event.name}': {expanded_dates}")
     return expanded_dates
+
+def compute_extra_events(config, uid_prefix, tz, now, until_date):
+    extra_events = []
+    weekday_map = {
+        "Sunday": SUNDAY, "Monday": MONDAY, "Tuesday": TUESDAY, "Wednesday": WEDNESDAY,
+        "Thursday": THURSDAY, "Friday": FRIDAY, "Saturday": SATURDAY
+    }
+
+    for entry in config.get("extra_events", []):
+        try:
+            emoji, rest = entry.split(" ", 1)
+            title, rule = rest.split(":")
+
+            # Fixed date like 21.6.fixed
+            if re.match(r"^\d{1,2}\.\d{1,2}\.fixed$", rule):
+                day, month, _ = rule.split(".")
+                day = int(day)
+                month = int(month)
+                for year in range(now.year, until_date.year + 1):
+                    dt = datetime(year, month, day, tzinfo=tz)
+                    if now <= dt <= until_date:
+                        event = Event()
+                        event.name = f"{emoji} {title}"
+                        event.begin = dt.date()
+                        event.make_all_day()
+                        event.uid = deterministic_uid(uid_prefix, title, dt)
+                        event.created = now
+                        extra_events.append(event)
+
+            # Nth weekday of month like 2.Sunday.5 or -1.Sunday.3
+            elif re.match(r"^-?\d+\.[A-Za-z]+\.-?\d+$", rule):
+                week, weekday_str, month = rule.split(".")
+                weekday = weekday_map.get(weekday_str)
+                month = int(month)
+                n = int(week)
+                for year in range(now.year, until_date.year + 1):
+                    cal = monthcalendar(year, month)
+                    days = [week[weekday] for week in cal if week[weekday] != 0]
+                    if n > 0 and len(days) >= n:
+                        day = days[n - 1]
+                    elif n < 0 and len(days) >= abs(n):
+                        day = days[n]
+                    else:
+                        continue
+                    dt = datetime(year, month, day, tzinfo=tz)
+                    if now <= dt <= until_date:
+                        event = Event()
+                        event.name = f"{emoji} {title}"
+                        event.begin = dt.date()
+                        event.make_all_day()
+                        event.uid = deterministic_uid(uid_prefix, title, dt)
+                        event.created = now
+                        extra_events.append(event)
+            else:
+                logger.warning(f"⚠️ Unsupported rule format in extra_event: '{entry}'")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to process extra_event '{entry}': {e}")
+
+    return extra_events
+
 
 def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=None, dry_run=False):
     url = feed_config["url"]

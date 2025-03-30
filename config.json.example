@@ -5,6 +5,21 @@
     "timezone": "Europe/Vienna",
     "uid_prefix": "ICS-",
     "future_event_limit_days": 365,
+    "extra_events": [
+      "☀️ Sommerzeit beginnt:-1.Sunday.3",
+      "🌷 Muttertag:2.Sunday.5",
+      "👨‍👧‍👦 Vatertag:2.Sunday.6",
+      "🔥 Sonnwendfeier:21.6.fixed",
+      "🧾 Steuererklärung:30.6.fixed",
+      "🌒 Sommerzeit endet:-1.Sunday.10",
+      "🎃 Halloween:31.10.fixed",
+      "🕯️ 1. Advent:-4.Sunday.12",
+      "🕯️ 2. Advent:-3.Sunday.12",
+      "🕯️ 3. Advent:-2.Sunday.12",
+      "🕯️ 4. Advent:-1.Sunday.12",
+      "👹 Krampusnacht:5.12.fixed",
+      "🎅 Nikolaus:6.12.fixed"    
+      ],
     "ics_feeds": [
       {
         "url": "https://app.muellapp.com/ical/74418?area_filter=145382%2C145383%2C151900&reminder&day=1&time=18:00",

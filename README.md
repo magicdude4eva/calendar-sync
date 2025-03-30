@@ -15,7 +15,7 @@
 It supports features such as:
 - ✅ Deterministic UID generation for clean deduplication
 - 📅 Emoji mapping for more readable calendar events
-- 🔁 Full support for recurring events (e.g., yearly holidays)
+- 🔁 Full support for recurring events (e.g., yearly holidays) and custom extra events
 - 🧼 Optional cleanup of previously imported events
 - 📍 Location-based filtering (e.g., for regional holidays in Austria)
 - 🐳 Docker deployment for simple automation
@@ -166,6 +166,48 @@ This ensures recurring events like public holidays or anniversaries are correctl
 - Expands the base event for each year (e.g. from 2025 to 2026).
 - Skips events in the past or beyond the future limit.
 - Deduplicates intelligently using UID hashing per year.
+
+### ➕ Support for Custom Extra Events
+
+In addition to ICS feeds, you can define your own custom events using the `extra_events` entry in `config.json`.
+
+This allows you to add things like:
+
+- 🌷 Mother's Day (2nd Sunday of May)
+- 👨‍👧‍👦 Father's Day (2nd Sunday of June)
+- 🔥 Summer Solstice (21st June)
+- 🎃 Halloween (31st October)
+- 🕯️ Advent Sundays
+- 🧾 Tax Deadlines
+- ☀️ Daylight Saving Time changes
+
+**Supported Formats:**
+
+| Format                     | Description                                 | Example                   |
+|----------------------------|---------------------------------------------|---------------------------|
+| `N.Weekday.Month`          | Nth weekday of a month                      | `2.Sunday.5` → 2nd Sunday in May |
+| `-N.Weekday.Month`         | Nth weekday from end of month               | `-1.Sunday.3` → last Sunday in March |
+| `DD.MM.fixed`              | Fixed date                                  | `31.10.fixed` → 31st October     |
+
+**Sample:**
+
+```json
+    "extra_events": [
+      "☀️ Sommerzeit beginnt:-1.Sunday.3",
+      "🌷 Muttertag:2.Sunday.5",
+      "👨‍👧‍👦 Vatertag:2.Sunday.6",
+      "🔥 Sonnwendfeier:21.6.fixed",
+      "🧾 Steuererklärung:30.6.fixed",
+      "🌒 Sommerzeit endet:-1.Sunday.10",
+      "🎃 Halloween:31.10.fixed",
+      "🕯️ 1. Advent:-4.Sunday.12",
+      "🕯️ 2. Advent:-3.Sunday.12",
+      "🕯️ 3. Advent:-2.Sunday.12",
+      "🕯️ 4. Advent:-1.Sunday.12",
+      "👹 Krampusnacht:5.12.fixed",
+      "🎅 Nikolaus:6.12.fixed"    
+      ],
+```
 
 ---
 
