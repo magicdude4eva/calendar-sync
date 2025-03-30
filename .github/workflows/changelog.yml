@@ -1,27 +1,39 @@
-name: Generate Changelog
+name: Generate CHANGELOG
 
 on:
   push:
     tags:
-      - 'v*' # Triggers on tag push like v1.0.0
+      - 'v*.*.*'  # Matches tags like v1.0.0, v2.3.1, etc.
 
 jobs:
   changelog:
+    name: Generate Changelog on Tag
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.20
+          go-version: '1.20'
 
       - name: Install git-chglog
         run: |
-          curl -sSL https://github.com/git-chglog/git-chglog/releases/download/v0.15.1/git-chglog_0.15.1_linux_amd64.tar.gz | tar -xz
-          sudo mv git-chglog /usr/local/bin/
+          go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      - name: Generate Changelog
+      - name: Generate changelog
         run: |
-          git-chglog -o CHANGELOG.md $(git describe --tags --abbrev=0)..HEAD
+          TAG=$(git describe --tags --abbrev=0)
+          echo "📦 Latest tag: $TAG"
+          git-chglog -o CHANGELOG.md "$TAG"..HEAD
+
+      - name: Commit and push changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs: update changelog for $TAG" || echo "No changes to commit"
+          git push
