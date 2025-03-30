@@ -42,9 +42,7 @@ def main():
 
     logger.info("Connecting to calendar...")
     client = DAVClient(config["caldav_url"], username=config["username"], password=config["password"])
-    principal = client.principal()
-    calendars = principal.calendars()
-    calendar = calendars[0]
+    calendar = client.calendar(url=config["caldav_url"])
 
     logger.info(f"Connected to calendar at {calendar.url}")
 
