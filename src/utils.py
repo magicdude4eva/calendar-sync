@@ -78,7 +78,9 @@ def deterministic_uid(prefix, title, start):
 def expand_yearly_events(event, until_date):
     current_year = datetime.now().year
     end_year = until_date.year
-    return [event.begin.replace(year=year).datetime for year in range(current_year, end_year + 1)]
+    expanded_dates = [event.begin.replace(year=year).datetime for year in range(current_year, end_year + 1)]
+    logger.debug(f"Expanding yearly event '{event.name}': {expanded_dates}")
+    return expanded_dates
 
 def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=None, dry_run=False):
     url = feed_config["url"]
@@ -98,9 +100,15 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
 
     for event in sorted(cal.events, key=lambda e: e.begin):
         if not event.begin:
+            logger.info(f"⏭️ Skipping event '{event.name}' due to missing begin date.")
             continue
 
-        is_yearly = "FREQ=YEARLY" in str(event.extra)
+        # Detect RRULE:FREQ=YEARLY using the raw extra field
+        raw_extras = str(event.extra).upper()
+        is_yearly = "RRULE:FREQ=YEARLY" in raw_extras
+
+        if is_yearly:
+            logger.info(f"🔁 Detected yearly recurring event: {event.name}")
         dates = expand_yearly_events(event, until_date) if is_yearly else [event.begin.datetime]
 
         for event_dt in dates:
@@ -109,9 +117,11 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
 
             # Skip past events
             if event_dt < now - timedelta(weeks=2):
+                logger.info(f"⏭️ Skipping event '{event.name}' on {event_dt.date()} – event is in the past.")
                 continue
 
             if event_dt > until_date:
+                logger.info(f"⏩ Skipping event '{event.name}' on {event_dt.date()} – exceeds future limit.")
                 continue
 
             # Filter by location if specified
@@ -143,6 +153,10 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
             new_event.uid = uid
             new_event.created = now
             new_event.description = event.description or ""
+            new_event.location = event.location or None
+            new_event.organizer = event.organizer or None
+            new_event.categories = list(event.categories) if event.categories else []
+            new_event.url = event.url or None
 
             if event.all_day:
                 new_event.begin = event_dt.date()
@@ -156,11 +170,6 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
                     end_dt = end_dt.replace(tzinfo=tz)
                 if end_dt > event_dt:
                     new_event.end = end_dt
-
-            new_event.location = event.location or None
-            new_event.organizer = event.organizer or None
-            new_event.categories = list(event.categories) if event.categories else []
-            new_event.url = event.url or None
 
             if hasattr(event, "alarms") and event.alarms:
                 new_event.alarms = list(event.alarms)

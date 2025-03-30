@@ -155,6 +155,17 @@ To discover valid locations, run the sync once and check the logs. Example:
 INFO: ⏭️ Skipping 'St. Florian' (2025-05-04) due to unmatched location: OÖ
 ```
 
+### 🗓️ Support for Yearly Recurring Events (`RRULE:FREQ=YEARLY`)
+
+The script now automatically expands ICS events with `RRULE:FREQ=YEARLY` rules into individual event instances for each year, up to the configured future limit (`future_event_limit_days`).  
+This ensures recurring events like public holidays or anniversaries are correctly synced across multiple years.
+
+**Behavior:**
+
+- Detects yearly recurring events by scanning raw `RRULE` data.
+- Expands the base event for each year (e.g. from 2025 to 2026).
+- Skips events in the past or beyond the future limit.
+- Deduplicates intelligently using UID hashing per year.
 
 ---
 
