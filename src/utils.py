@@ -152,7 +152,7 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
     response = requests.get(url)
     response.raise_for_status()
 
-    cal = Calendar(response.text)
+    cal = Calendar(response.content.decode("utf-8"))
     logger.info(f"📅 Found {len(cal.events)} events in feed")
 
     tz = ZoneInfo(config.get("timezone", "Europe/Vienna"))
