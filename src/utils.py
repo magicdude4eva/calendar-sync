@@ -205,7 +205,7 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
             if not emoji:
                 emoji = emoji_map.get("default", "❓")
 
-            emoji_title = f"{emoji} {original_title}"
+            emoji_title = f"{emoji} {original_title}".strip()
             uid = deterministic_uid(uid_prefix, original_title, event_dt)
 
             if uid in existing_uids:
