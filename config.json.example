@@ -23,6 +23,7 @@
     "ics_feeds": [
       {
         "url": "https://app.muellapp.com/ical/74418?area_filter=145382%2C145383%2C151900&reminder&day=1&time=18:00",
+        "uid_prefix": "MUELL-",
         "emoji_mapping": {
           "Restmüll": "🗑️",
           "Papier": "♻️",
@@ -31,6 +32,7 @@
       },
       {
         "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
+        "uid_prefix": "HOLIDAY-",
         "import_locations": "K,St",
         "emoji_mapping": {
           "§": "🇦🇹",
@@ -39,6 +41,7 @@
       },
       {
         "url": "https://files-f1.motorsportcalendars.com/f1-calendar_p1_p2_p3_qualifying_sprint_gp_alarm-30.ics",
+        "uid_prefix": "F1-",
         "emoji_mapping": {
           "FP1": "🏎️",
           "FP2": "🏎️",
