@@ -16,15 +16,14 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger("calendar_sync")
 
-def connect_to_calendar(config):
-    from caldav import DAVClient
-    client = DAVClient(
-        url=config["caldav_url"],
-        username=config["username"],
-        password=config["password"]
-    )
-    principal = client.principal()
-    return principal.calendars()[0]
+
+def fetch_all_events(calendar):
+    """Fetch all events from the calendar once and reuse for filtering."""
+    logger.info("📥 Fetching all events from calendar (once)...")
+    events = list(calendar.events())
+    logger.info(f"📅 Found {len(events)} events on calendar")
+    return events
+
 
 def extract_uid(event):
     try:
@@ -38,17 +37,26 @@ def extract_uid(event):
         logger.warning(f"⚠️ Failed to extract UID: {e}")
     return None
 
-def get_existing_events(calendar, prefix, cleanup_mode=False):
-    logger.info("Fetching all events from calendar...")
-    events = list(calendar.events())
-    logger.info(f"Found {len(events)} events on calendar")
+
+def get_existing_events(calendar, prefix, cleanup_mode=False, all_events=None, multiple_prefixes=None):
+    """
+    Return events or delete them if cleanup_mode=True.
+    Supports multiple prefixes in one pass when multiple_prefixes is provided.
+    """
+    if all_events is None:
+        logger.info("Fetching all events from calendar...")
+        events = list(calendar.events())
+        logger.info(f"Found {len(events)} events on calendar")
+    else:
+        events = all_events
 
     uids_to_delete = []
     kept = 0
+    prefixes = set(multiple_prefixes) if multiple_prefixes else {prefix}
 
     for event in events:
         uid = extract_uid(event)
-        if uid and uid.startswith(prefix):
+        if uid and any(uid.startswith(p) for p in prefixes):
             if cleanup_mode:
                 uids_to_delete.append((uid, event))
             else:
@@ -65,11 +73,12 @@ def get_existing_events(calendar, prefix, cleanup_mode=False):
             except Exception as e:
                 logger.warning(f"⚠️ Could not delete UID {uid}: {e}")
 
-        logger.info(f"✅ Deleted {len(uids_to_delete)} events with prefix '{prefix}'")
-        logger.info(f"🛑 Kept {kept} events without prefix")
+        logger.info(f"✅ Deleted {len(uids_to_delete)} events matching prefixes: {', '.join(prefixes)}")
+        logger.info(f"🛑 Kept {kept} events without matching prefixes")
         return []
     else:
         return set(uids_to_delete)
+
 
 def deterministic_uid(prefix, title, start):
     normalized_start = start.astimezone(ZoneInfo("UTC")).replace(second=0, microsecond=0)
@@ -78,12 +87,14 @@ def deterministic_uid(prefix, title, start):
     uid_hash = hashlib.md5(uid_source.encode("utf-8")).hexdigest()
     return f"{prefix}{normalized_start.year}-{uid_hash[:16]}"
 
+
 def expand_yearly_events(event, until_date):
     current_year = datetime.now().year
     end_year = until_date.year
     expanded_dates = [event.begin.replace(year=year).datetime for year in range(current_year, end_year + 1)]
     logger.debug(f"Expanding yearly event '{event.name}': {expanded_dates}")
     return expanded_dates
+
 
 def compute_extra_events(config, uid_prefix, tz, now, until_date):
     extra_events = []
@@ -106,7 +117,7 @@ def compute_extra_events(config, uid_prefix, tz, now, until_date):
                     dt = datetime(year, month, day, tzinfo=tz)
                     if now <= dt <= until_date:
                         event = Event()
-                        event.name = f"{emoji} {title}"
+                        event.name = f"{emoji} {title}".strip()
                         event.begin = dt.date()
                         event.make_all_day()
                         event.uid = deterministic_uid(uid_prefix, title, dt)
@@ -131,7 +142,7 @@ def compute_extra_events(config, uid_prefix, tz, now, until_date):
                     dt = datetime(year, month, day, tzinfo=tz)
                     if now <= dt <= until_date:
                         event = Event()
-                        event.name = f"{emoji} {title}"
+                        event.name = f"{emoji} {title}".strip()
                         event.begin = dt.date()
                         event.make_all_day()
                         event.uid = deterministic_uid(uid_prefix, title, dt)
@@ -152,7 +163,12 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
     response = requests.get(url)
     response.raise_for_status()
 
-    cal = Calendar(response.content.decode("utf-8"))
+    try:
+        cal = Calendar(response.content.decode("utf-8"))
+    except UnicodeDecodeError:
+        logger.warning("⚠️ UTF-8 decode failed, falling back to ISO-8859-1")
+        cal = Calendar(response.content.decode("iso-8859-1"))
+
     logger.info(f"📅 Found {len(cal.events)} events in feed")
 
     tz = ZoneInfo(config.get("timezone", "Europe/Vienna"))
@@ -167,7 +183,6 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
             logger.info(f"⏭️ Skipping event '{event.name}' due to missing begin date.")
             continue
 
-        # Detect RRULE:FREQ=YEARLY using the raw extra field
         raw_extras = str(event.extra).upper()
         is_yearly = "RRULE:FREQ=YEARLY" in raw_extras
 
@@ -179,37 +194,29 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
             if event_dt.tzinfo is None:
                 event_dt = event_dt.replace(tzinfo=tz)
 
-            # Skip past events
             if event_dt < now - timedelta(weeks=2):
-                logger.info(f"⏭️ Skipping event '{event.name}' on {event_dt.date()} – event is in the past.")
+                logger.info(f"⏩ Skipping event '{event.name}' on {event_dt.date()} – event is in the past.")
                 continue
 
             if event_dt > until_date:
                 logger.info(f"⏩ Skipping event '{event.name}' on {event_dt.date()} – exceeds future limit.")
                 continue
 
-            # Filter by location if specified
             location = (event.location or "").replace(" ", "")
             if import_locations and location:
                 if not any(loc in location.split(",") for loc in import_locations.split(",")):
-                    logger.info(f"⏭️ Skipping '{event.name}' ({event_dt.date()}) due to unmatched location: {location}")
+                    logger.info(f"⏩ Skipping '{event.name}' ({event_dt.date()}) due to unmatched location: {location}")
                     continue
 
-            # Prepare title
-            original_title = event.name or "Untitled"
-            emoji = None
-            for key, symbol in emoji_map.items():
-                if key != "default" and key in original_title:
-                    emoji = symbol
-                    break
-            if not emoji:
-                emoji = emoji_map.get("default", "❓")
+            original_title = (event.name or "Untitled").strip()
+            emoji = next((symbol for key, symbol in emoji_map.items() if key != "default" and key in original_title),
+                         emoji_map.get("default", "❓"))
 
             emoji_title = f"{emoji} {original_title}".strip()
             uid = deterministic_uid(uid_prefix, original_title, event_dt)
 
             if uid in existing_uids:
-                logger.info(f"⏭️ Skipped existing event '{emoji_title}' on {event_dt.date()} (UID {uid})")
+                logger.info(f"⏩ Skipped existing event '{emoji_title}' on {event_dt.date()} (UID {uid})")
                 continue
 
             new_event = Event()
@@ -246,7 +253,8 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
                     logger.info(f"✅ Created event '{emoji_title}' on {event_dt.date()}")
                 except Exception as e:
                     if "409" in str(e):
-                        logger.warning(f"⚠️ Event already exists (409 Conflict): '{emoji_title}' on {event_dt.date()}. Attempting deduplication.")
+                        logger.warning(
+                            f"⚠️ Event already exists (409 Conflict): '{emoji_title}' on {event_dt.date()}. Attempting deduplication.")
                         try:
                             existing = next((ev for ev in calendar.events() if extract_uid(ev) == uid), None)
                             if existing:

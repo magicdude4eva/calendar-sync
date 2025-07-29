@@ -15,8 +15,9 @@
 It supports features such as:
 - ✅ Deterministic UID generation for clean deduplication
 - 📅 Emoji mapping for more readable calendar events
-- 🔁 Full support for recurring events (e.g., yearly holidays) and custom extra events
-- 🧼 Optional cleanup of previously imported events
+- 🔁 Automatic expansion of `RRULE:FREQ=YEARLY` events
+- 🔁 Full support for recurring events (e.g., yearly holidays) and custom extra events (Mother’s Day, Advent Sundays, etc.)
+- 🧼 Cleanup mode with multi-prefix support (`--cleanup PREFIX1,PREFIX2`)
 - 📍 Location-based filtering (e.g., for regional holidays in Austria)
 - 🐳 Docker deployment for simple automation
 - 💡 Dry-run mode to preview changes without writing
@@ -64,7 +65,8 @@ ___
 ```bash
 python src/calendar_sync.py --import
 python src/calendar_sync.py --import --dry-run
-python src/calendar_sync.py --cleanup
+python src/calendar_sync.py --cleanup # cleans global prefix
+python src/calendar_sync.py --cleanup MUELL-,F1- # cleans multiple prefixes
 ```
 
 ### With Docker Compose
@@ -110,6 +112,7 @@ pip install -r requirements.txt
   "ics_feeds": [
     {
       "url": "https://example.com/my.ics",
+      "uid_prefix": "EXAMPLE-",
       "emoji_mapping": {
         "Papier": "♻️",
         "default": "📦"
@@ -150,19 +153,15 @@ INFO: ⏭️ Skipping 'St. Florian' (2025-05-04) due to unmatched location: OÖ
 ```
 
 ### 🗓️ Support for Yearly Recurring Events (`RRULE:FREQ=YEARLY`)
-
-The script now automatically expands ICS events with `RRULE:FREQ=YEARLY` rules into individual event instances for each year, up to the configured future limit (`future_event_limit_days`).  
-This ensures recurring events like public holidays or anniversaries are correctly synced across multiple years.
+The script automatically expands ICS events with `RRULE:FREQ=YEARLY` rules into individual event instances for each year, up to the configured future limit (`future_event_limit_days`). This ensures recurring events like public holidays or anniversaries are correctly synced across multiple years.
 
 **Behavior:**
-
 - Detects yearly recurring events by scanning raw `RRULE` data.
 - Expands the base event for each year (e.g. from 2025 to 2026).
 - Skips events in the past or beyond the future limit.
 - Deduplicates intelligently using UID hashing per year.
 
 ### ➕ Support for Custom Extra Events
-
 In addition to ICS feeds, you can define your own custom events using the `extra_events` entry in `config.json`.
 
 This allows you to add things like:
@@ -255,7 +254,6 @@ Paste it into `config.json` under `"caldav_url"`
 ---
 
 ## 📄 License
-
 This project is licensed under the [MIT License](LICENSE).
 
 ---

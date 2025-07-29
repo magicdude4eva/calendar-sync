@@ -8,10 +8,10 @@ from zoneinfo import ZoneInfo
 from colorlog import ColoredFormatter
 from caldav import DAVClient
 from utils import (
+    fetch_all_events,
     get_existing_events,
     import_ics_feed,
     compute_extra_events,
-    deterministic_uid
 )
 
 LOGFORMAT = "%(log_color)s%(levelname)8s:%(reset)s %(message)s"
@@ -25,10 +25,16 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False  # Prevent duplicate log lines
 
+
 def main():
     parser = argparse.ArgumentParser(description="Sync ICS feeds to CalDAV calendar.")
     parser.add_argument("--import", dest="import_events", action="store_true", help="Import events from ICS feeds")
-    parser.add_argument("--cleanup", action="store_true", help="Delete all events with matching UID prefix")
+    parser.add_argument(
+        "--cleanup",
+        nargs="?",
+        const=True,
+        help="Delete events. Without arguments: cleans up global UID prefix. With comma-separated prefixes: cleans only those prefixes."
+    )
     parser.add_argument("--dry-run", action="store_true", help="Simulate import without modifying calendar")
     args = parser.parse_args()
 
@@ -43,16 +49,33 @@ def main():
     logger.info("Connecting to calendar...")
     client = DAVClient(config["caldav_url"], username=config["username"], password=config["password"])
     calendar = client.calendar(url=config["caldav_url"])
-
     logger.info(f"Connected to calendar at {calendar.url}")
 
+    # Handle cleanup (multi-prefix support)
     if args.cleanup:
-        get_existing_events(calendar, config["uid_prefix"], cleanup_mode=True)
+        if isinstance(args.cleanup, str):
+            prefixes = [p.strip() for p in args.cleanup.split(",") if p.strip()]
+        else:
+            prefixes = [config["uid_prefix"]]
 
+        all_events = fetch_all_events(calendar)
+        logger.info(f"🧹 Cleaning up events for prefixes: {', '.join(prefixes)}")
+        get_existing_events(calendar, prefixes[0], cleanup_mode=True, all_events=all_events, multiple_prefixes=prefixes)
+
+    # Handle imports
     if args.import_events:
-        existing_uids = get_existing_events(calendar, config["uid_prefix"], cleanup_mode=False)
+        all_events = fetch_all_events(calendar)
 
-        # Compute and import extra_events
+        # Collect existing UIDs for all feeds
+        existing_uids = set()
+        for feed in config["ics_feeds"]:
+            feed_prefix = feed.get("uid_prefix", config["uid_prefix"])
+            existing_uids.update(get_existing_events(calendar, feed_prefix, cleanup_mode=False, all_events=all_events))
+
+        # Also collect existing UIDs for extra events (global prefix)
+        existing_uids.update(get_existing_events(calendar, config["uid_prefix"], cleanup_mode=False, all_events=all_events))
+
+        # Compute and import extra_events (global prefix)
         tz = ZoneInfo(config.get("timezone", "Europe/Vienna"))
         now = datetime.now(tz)
         future_limit_days = config.get("future_event_limit_days", 365)
@@ -72,16 +95,18 @@ def main():
                 except Exception as e:
                     logger.error(f"❌ Failed to create extra event '{event.name}': {e}")
 
-        # Import ICS feeds
+        # Import ICS feeds (respect per-feed uid_prefix)
         for feed_config in config["ics_feeds"]:
+            feed_prefix = feed_config.get("uid_prefix", config["uid_prefix"])
             import_ics_feed(
                 calendar,
                 feed_config,
-                config["uid_prefix"],
+                feed_prefix,
                 existing_uids,
                 config=config,
                 dry_run=args.dry_run
             )
+
 
 if __name__ == "__main__":
     main()
