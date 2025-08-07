@@ -250,7 +250,6 @@ Right-click your new calendar → `Properties` → Copy the URL
 ![Get the CalDAV URL](docs/mailbox3_caldav_url.jpg)
 
 Paste it into `config.json` under `"caldav_url"`
-
 ---
 
 ## 📄 License
