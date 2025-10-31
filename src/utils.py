@@ -163,8 +163,14 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
     response = requests.get(url)
     response.raise_for_status()
 
+    ics_data = response.content.decode("utf-8")
+    for rule in feed_config.get("cleanup_regex", []):
+        pattern = rule["pattern"]
+        replacement = rule["replacement"]
+        ics_data = re.sub(pattern, replacement, ics_data)
+
     try:
-        cal = Calendar(response.content.decode("utf-8"))
+        cal = Calendar(ics_data)
     except UnicodeDecodeError:
         logger.warning("⚠️ UTF-8 decode failed, falling back to ISO-8859-1")
         cal = Calendar(response.content.decode("iso-8859-1"))
