@@ -51,6 +51,19 @@
           "Qualifying": "⏱️",
           "Grand Prix": "🏆"
         }
+      },
+      {
+        "url": "https://data.fis-ski.com/services/public/icalendar-feed-fis-events.html?seasoncode=2026&sectorcode=AL&categorycode=WC&gendercode=M",
+        "uid_prefix": "FISm-",
+        "emoji_mapping": {
+          "default": "⛷️ "
+        },
+        "cleanup_regex": [
+          {
+            "pattern": "STATUS:FREE",
+            "replacement": "STATUS:CONFIRMED"
+          }
+        ],
       }
     ]
   }
