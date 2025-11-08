@@ -63,10 +63,16 @@ ___
 ### Manual
 
 ```bash
+# Default config file (config.json)
 python src/calendar_sync.py --import
 python src/calendar_sync.py --import --dry-run
 python src/calendar_sync.py --cleanup # cleans global prefix
 python src/calendar_sync.py --cleanup MUELL-,F1- # cleans multiple prefixes
+
+# Custom config file
+python src/calendar_sync.py --import --config /path/to/another_config.json
+python src/calendar_sync.py --import --dry-run --config /path/to/another_config.json
+python src/calendar_sync.py --cleanup --config /path/to/another_config.json
 ```
 
 ### With Docker Compose
@@ -80,9 +86,15 @@ docker-compose build
 Then run the sync:
 
 ```bash
+# Default config file
 docker-compose run --rm calendar-sync --import
 docker-compose run --rm calendar-sync --import --dry-run
 docker-compose run --rm calendar-sync --cleanup
+
+# Custom config file (mount the config file into the container)
+docker-compose run --rm -v /path/to/another_config.json:/app/config.json calendar-sync --import
+docker-compose run --rm -v /path/to/another_config.json:/app/config.json calendar-sync --import --dry-run
+docker-compose run --rm -v /path/to/another_config.json:/app/config.json calendar-sync --cleanup
 ```
 
 ---
@@ -99,8 +111,15 @@ pip install -r requirements.txt
 
 ---
 
-## ⚙️ config.json
+## ⚙️ Configuration
 
+You can use multiple config files to manage different calendars. By default, the script uses `config.json`. To use a different config file, pass it via the `--config` argument:
+
+```bash
+python src/calendar_sync.py --import --config /path/to/another_config.json
+```
+
+Example config:
 ```json
 {
   "caldav_url": "https://dav-sso.mailbox.org/caldav/...",

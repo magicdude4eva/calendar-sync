@@ -36,16 +36,18 @@ def main():
         help="Delete events. Without arguments: cleans up global UID prefix. With comma-separated prefixes: cleans only those prefixes."
     )
     parser.add_argument("--dry-run", action="store_true", help="Simulate import without modifying calendar")
+    parser.add_argument("--config", default="config.json", help="Path to the config file (default: config.json)")
     args = parser.parse_args()
 
-    config_path = Path("config.json")
+    config_path = Path(args.config)
     if not config_path.exists():
-        logger.error("❌ config.json not found.")
+        logger.error(f"❌ Config file '{args.config}' not found.")
         return
 
     with open(config_path, "r") as f:
         config = json.load(f)
 
+    logger.info(f"Using config file: {args.config}")
     logger.info("Connecting to calendar...")
     client = DAVClient(config["caldav_url"], username=config["username"], password=config["password"])
     calendar = client.calendar(url=config["caldav_url"])

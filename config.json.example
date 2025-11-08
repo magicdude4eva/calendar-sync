@@ -40,16 +40,18 @@
         }
       },
       {
-        "url": "https://files-f1.motorsportcalendars.com/f1-calendar_p1_p2_p3_qualifying_sprint_gp_alarm-30.ics",
+        "url": "https://better-f1-calendar.vercel.app/api/calendar.ics",
         "uid_prefix": "F1-",
         "emoji_mapping": {
+          ": Practice ": "🏎️",
           "FP1": "🏎️",
           "FP2": "🏎️",
           "FP3": "🏎️",
           "Sprint Qualifying": "⏱️",
           "Sprint": "⚡",
           "Qualifying": "⏱️",
-          "Grand Prix": "🏆"
+          "Grand Prix": "🏆",
+          ": Race": "🏆"
         }
       },
       {
