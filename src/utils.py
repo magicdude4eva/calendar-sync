@@ -1,7 +1,7 @@
 # utils.py
 
 import requests
-from ics import Calendar, Event
+from ics import Calendar, Event, alarm
 from ics.alarm import DisplayAlarm
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -156,6 +156,25 @@ def compute_extra_events(config, uid_prefix, tz, now, until_date):
 
     return extra_events
 
+def parse_alarm(offset):
+    """
+    parse the alarm strings like '1d', '10m' into a timedelta
+    """
+
+
+    regex = re.match(r"^(\d+)([dhm])$", offset.lower())
+
+    if not regex:
+        raise("Error, invalid reminder value")
+
+    val = int(regex.group(1))
+    unit = regex.group(2)
+    if unit == 'd':
+        return timedelta(days=-val)
+    elif unit == 'h':
+        return timedelta(hours=-val)
+    elif unit == 'm':
+        return timedelta(minutes=-val)
 
 def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=None, dry_run=False):
     url = feed_config["url"]
@@ -235,6 +254,7 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
             new_event.categories = list(event.categories) if event.categories else []
             new_event.url = event.url or None
 
+
             if event.all_day:
                 new_event.begin = event_dt.date()
                 new_event.make_all_day()
@@ -250,6 +270,14 @@ def import_ics_feed(calendar, feed_config, uid_prefix, existing_uids, config=Non
 
             if hasattr(event, "alarms") and event.alarms:
                 new_event.alarms = list(event.alarms)
+            else:
+                reminder = feed_config.get("default_reminder", None)
+                if reminder is not None:
+                    try:
+                        reminder_delta = parse_alarm(reminder)
+                        new_event.alarms = [DisplayAlarm(trigger=reminder_delta)]
+                    except Exception as e:
+                        logger.warning(f"⚠️ Invalid reminder format '{reminder}': {e}")
 
             if dry_run:
                 logger.info(f"💡 [Dry-run] Would create event '{emoji_title}' on {event_dt.date()} (UID {uid})")
