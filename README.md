@@ -135,7 +135,8 @@ Example config:
       "emoji_mapping": {
         "Papier": "♻️",
         "default": "📦"
-      }
+      },
+      "default_reminder": "1d"
     }
   ]
 }
