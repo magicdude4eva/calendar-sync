@@ -16,7 +16,7 @@ It supports features such as:
 - ✅ Deterministic UID generation for clean deduplication
 - 📅 Emoji mapping for more readable calendar events
 - 🔁 Automatic expansion of `RRULE:FREQ=YEARLY` events
-- 🔁 Full support for recurring events (e.g., yearly holidays) and custom extra events (Mother’s Day, Advent Sundays, etc.)
+- 🔁 Full support for recurring events (e.g., yearly holidays) and custom extra events (Mother's Day, Advent Sundays, etc.)
 - 🧼 Cleanup mode with multi-prefix support (`--cleanup PREFIX1,PREFIX2`)
 - 📍 Location-based filtering (e.g., for regional holidays in Austria)
 - 🐳 Docker deployment for simple automation
@@ -170,6 +170,96 @@ Example config:
 To discover valid locations, run the sync once and check the logs. Example:
 ```
 INFO: ⏭️ Skipping 'St. Florian' (2025-05-04) due to unmatched location: OÖ
+```
+
+### 📱 Emoji Mapping
+
+Emoji mapping allows you to prefix event titles with emojis for better visual organization in your calendar. This is particularly useful when syncing multiple ICS feeds to distinguish between different event types at a glance.
+
+**How it works:**
+
+The `emoji_mapping` object in your feed configuration uses **event title matching** to determine which emoji to prepend to an event:
+
+1. **Exact key matching**: The script checks if any key in the `emoji_mapping` object matches part of the event's title
+2. **Prepending**: When a match is found, the corresponding emoji is prepended to the event title
+3. **Fallback**: If the event title doesn't match any configured keys, the `"default"` emoji is used
+4. **Case-sensitive**: Matching is case-sensitive
+
+**Key points:**
+
+- The `emoji_mapping` object accepts any string as a key (words, phrases, special characters, etc.)
+- The `"default"` key is a special reserved field that serves as a fallback emoji when no other keys match
+- Values must be emojis or text that will be prepended to the event title
+- You can configure multiple mappings per feed
+
+**Examples:**
+
+```json
+{
+  "url": "https://example.com/waste.ics",
+  "emoji_mapping": {
+    "Papier": "♻️",
+    "Plastik": "🟡",
+    "Glas": "🟢",
+    "Restmüll": "⚫",
+    "default": "🗑️"
+  }
+}
+```
+
+With the above configuration, an event titled "Papier Collection" would become "♻️ Papier Collection", while an unknown event type would become "🗑️ Unknown Event".
+
+**Another example (Austrian holidays):**
+
+```json
+{
+  "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
+  "emoji_mapping": {
+    "Ostern": "🐰",
+    "Weihnachten": "🎄",
+    "Neujahr": "🎆",
+    "§": "🇦🇹",
+    "default": "🗓️"
+  }
+}
+```
+
+### ⏰ Default Reminder Format
+
+The `default_reminder` field specifies when you should receive a notification for imported events. It uses a duration format with unit suffixes:
+
+| Format  | Meaning |
+|---------|---------|
+| `15m`   | 15 minutes before the event |
+| `1h`    | 1 hour before the event |
+| `1d`    | 1 day before the event |
+| `2d`    | 2 days before the event |
+| `1w`    | 1 week before the event |
+
+- **`m`** = minutes
+- **`h`** = hours
+- **`d`** = days
+- **`w`** = weeks
+
+**Examples:**
+
+```json
+{
+  "ics_feeds": [
+    {
+      "url": "https://example.com/my.ics",
+      "default_reminder": "15m"   // Notify 15 minutes before
+    },
+    {
+      "url": "https://example.com/holidays.ics",
+      "default_reminder": "1d"    // Notify 1 day before
+    },
+    {
+      "url": "https://example.com/formula1.ics",
+      "default_reminder": "2h"    // Notify 2 hours before
+    }
+  ]
+}
 ```
 
 ### 🗓️ Support for Yearly Recurring Events (`RRULE:FREQ=YEARLY`)
