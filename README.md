@@ -350,7 +350,7 @@ Many calendar clients (Thunderbird, Evolution, etc.) support **category-based co
 
 ### 🎨 Event Colors (RFC 7986)
 
-You can assign colors to individual events using the `calendar_color` property in your feed configuration. This follows the [RFC 7986](https://icalendar.org/New-Properties-for-iCalendar-RFC-7986/5-9-color-property.html) standard for iCalendar color properties.
+You can assign colors to individual events using the `calendar_color` property in your feed configuration. This follows the [RFC 7986](https://icalendar.org/New-Properties-for-iCalendar-RFC-7986/5-9-color-property.html) standard for iCalendar color properties. For supported colors in refer to [CSS Color Names](https://www.cssportal.com/css-color-names/).
 
 #### **Color Configuration**
 
