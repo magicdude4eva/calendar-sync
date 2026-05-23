@@ -104,7 +104,7 @@ docker-compose run --rm -v /path/to/another_config.json:/app/config.json calenda
 ```bash
 git clone https://github.com/magicdude4eva/calendar-sync.git
 cd calendar-sync
-python3.13 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -175,6 +175,125 @@ INFO: ⏭️ Skipping 'St. Florian' (2025-05-04) due to unmatched location: OÖ
 ### 📱 Emoji Mapping
 
 Emoji mapping allows you to prefix event titles with emojis for better visual organization in your calendar. This is particularly useful when syncing multiple ICS feeds to distinguish between different event types at a glance.
+
+### 🏷️ Categories Support
+
+Categories allow you to organize and filter events in your calendar client. The `categories` configuration provides comprehensive control over how event categories are handled:
+
+#### **Category Configuration Options**
+
+The `categories` object in your feed configuration supports multiple operations:
+
+| Option | Type | Description | Example |
+|--------|------|-------------|---------|
+| `append` | Array | Add categories to the end of existing ones | `["Imported", "Synced"]` |
+| `prepend` | Array | Add categories to the beginning of existing ones | `["Custom"]` |
+| `remove` | Array | Remove unwanted categories | `["SPAM", "ADVERTISING"]` |
+| `replace_if_empty` | Array | Replace all categories if event has none | `["Default"]` |
+| `deduplicate` | Boolean | Remove duplicate categories (default: `true`) | `true` or `false` |
+
+#### **How Categories Work**
+
+1. **Upstream categories** are preserved from the ICS feed
+2. **Custom categories** are added based on your configuration
+3. **Filtering** removes unwanted categories
+4. **Deduplication** ensures each category appears only once
+
+#### **Category Processing Order**
+
+1. Start with upstream categories from the ICS feed (if any)
+2. Apply `replace_if_empty` if event has no categories and this is configured
+3. Apply `prepend` categories (added to beginning)
+4. Apply `append` categories (added to end)
+5. Apply `remove` filtering
+6. Deduplicate if enabled
+
+#### **Examples**
+
+**Example 1: Adding custom categories**
+```json
+{
+  "url": "https://example.com/my.ics",
+  "categories": {
+    "append": ["Imported", "Synced"]
+  }
+}
+```
+**Result**: Events get their original categories + "Imported" and "Synced"
+
+**Example 2: Filtering unwanted categories**
+```json
+{
+  "url": "https://example.com/third-party.ics",
+  "categories": {
+    "append": ["Imported"],
+    "remove": ["SPAM", "ADVERTISING", "Third-Party"]
+  }
+}
+```
+**Result**: Events get original categories + "Imported", minus any unwanted ones
+
+**Example 3: Replacing empty categories**
+```json
+{
+  "url": "https://example.com/empty-categories.ics",
+  "categories": {
+    "replace_if_empty": ["Default Category"],
+    "append": ["Synced Events"]
+  }
+}
+```
+**Result**: Events with no categories get ["Default Category", "Synced Events"]
+
+**Example 4: Prepending categories**
+```json
+{
+  "url": "https://example.com/priority.ics",
+  "categories": {
+    "prepend": ["High Priority", "Important"]
+  }
+}
+```
+**Result**: Events get ["High Priority", "Important"] + original categories
+
+**Example 5: Complete control**
+```json
+{
+  "url": "https://example.com/clean.ics",
+  "categories": {
+    "prepend": ["Custom"],
+    "append": ["Imported"],
+    "remove": ["SPAM"],
+    "deduplicate": true
+  }
+}
+```
+**Result**: Full control over category composition with deduplication
+
+#### **Use Cases**
+
+- **Identify synced events**: Add "Imported" or "Synced" to all events
+- **Filter spam**: Remove unwanted categories like "SPAM" or "ADVERTISING"
+- **Organize by type**: Add categories like "Holidays", "Sports", "Work"
+- **Clean up third-party feeds**: Remove feed-specific spam categories
+- **Standardize categories**: Ensure consistent categorization across feeds
+
+#### **Client-Side Coloring**
+
+Many calendar clients (Thunderbird, Evolution, etc.) support **category-based coloring**:
+- Events with the same category share the same color
+- You can configure your client to assign specific colors to specific categories
+- This provides visual organization without modifying the event data
+
+**Note**: Color assignment is client-specific and not part of the CalDAV standard. See your calendar client's documentation for details.
+
+**Example Thunderbird setup**:
+1. Go to Calendar Properties
+2. Select "Categories" tab
+3. Assign colors to each category
+4. Events will automatically use those colors
+
+**Reference**: [Thunderbird Calendar Categories](https://support.mozilla.org/en-US/kb/calendar-categories)  
 
 **How it works:**
 

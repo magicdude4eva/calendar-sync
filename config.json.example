@@ -18,7 +18,7 @@
       "🕯️ 3. Advent:-2.Sunday.12",
       "🕯️ 4. Advent:-1.Sunday.12",
       "👹 Krampusnacht:5.12.fixed",
-      "🎅 Nikolaus:6.12.fixed"    
+      "🎅 Nikolaus:6.12.fixed"
       ],
     "ics_feeds": [
       {
@@ -28,6 +28,9 @@
           "Restmüll": "🗑️",
           "Papier": "♻️",
           "Gelber Sack": "🟡"
+        },
+        "categories": {
+          "append": ["Waste Collection", "Municipal"]
         }
       },
       {
@@ -37,13 +40,17 @@
         "emoji_mapping": {
           "§": "🇦🇹",
           "default": "🗓️"
+        },
+        "categories": {
+          "prepend": ["Austrian"],
+          "remove": ["Holiday", "Public"]
         }
       },
       {
         "url": "https://better-f1-calendar.vercel.app/api/calendar.ics",
         "uid_prefix": "F1-",
         "emoji_mapping": {
-          ": Practice ": "🏎️",
+          " - Practice ": "🏎️",
           "FP1": "🏎️",
           "FP2": "🏎️",
           "FP3": "🏎️",
@@ -51,7 +58,12 @@
           "Sprint": "⚡",
           "Qualifying": "⏱️",
           "Grand Prix": "🏆",
-          ": Race": "🏆"
+          ": Race": "🏆",
+          " - Race": "🏆"
+        },
+        "categories": {
+          "append": ["Sports", "Racing"],
+          "remove": ["Event", "Calendar"]
         }
       },
       {
@@ -66,6 +78,27 @@
             "replacement": "STATUS:CONFIRMED"
           }
         ],
+        "categories": {
+          "replace_if_empty": ["Ski Racing", "FIS"],
+          "deduplicate": true
+        }
+      },
+      {
+        "url": "https://example.com/third-party.ics",
+        "uid_prefix": "EXAMPLE-",
+        "categories": {
+          "append": ["Imported"],
+          "remove": ["SPAM", "ADVERTISING", "Third-Party"],
+          "deduplicate": true
+        }
+      },
+      {
+        "url": "https://example.com/empty-categories.ics",
+        "uid_prefix": "EMPTY-",
+        "categories": {
+          "replace_if_empty": ["Default Category"],
+          "append": ["Synced Events"]
+        }
       }
     ]
   }
