@@ -176,102 +176,57 @@ INFO: ⏭️ Skipping 'St. Florian' (2025-05-04) due to unmatched location: OÖ
 
 Emoji mapping allows you to prefix event titles with emojis for better visual organization in your calendar. This is particularly useful when syncing multiple ICS feeds to distinguish between different event types at a glance.
 
-### 🏷️ Categories Support
+**How it works:**
 
-Categories allow you to organize and filter events in your calendar client. The `categories` configuration provides comprehensive control over how event categories are handled:
+The `emoji_mapping` object in your feed configuration uses **event title matching** to determine which emoji to prepend to an event:
 
-### 🎨 Event Colors (RFC 7986)
+1. **Exact key matching**: The script checks if any key in the `emoji_mapping` object matches part of the event's title
+2. **Prepending**: When a match is found, the corresponding emoji is prepended to the event title
+3. **Fallback**: If the event title doesn't match any configured keys, the `"default"` emoji is used
+4. **Case-sensitive**: Matching is case-sensitive
 
-You can assign colors to individual events using the `calendar_color` property in your feed configuration. This follows the [RFC 7986](https://icalendar.org/New-Properties-for-iCalendar-RFC-7986/5-9-color-property.html) standard for iCalendar color properties.
+**Key points:**
 
-#### **Color Configuration**
+- The `emoji_mapping` object accepts any string as a key (words, phrases, special characters, etc.)
+- The `"default"` key is a special reserved field that serves as a fallback emoji when no other keys match
+- Values must be emojis or text that will be prepended to the event title
+- You can configure multiple mappings per feed
 
-Add `calendar_color` to any feed configuration:
+**Examples:**
 
 ```json
 {
-  "url": "https://example.com/my.ics",
-  "calendar_color": "#FF5733",  // Orange-red color
-  "categories": {
-    "append": ["Important"]
+  "url": "https://example.com/waste.ics",
+  "emoji_mapping": {
+    "Papier": "♻️",
+    "Plastik": "🟡",
+    "Glas": "🟢",
+    "Restmüll": "⚫",
+    "default": "🗑️"
   }
 }
 ```
 
-#### **Supported Color Formats**
+With the above configuration, an event titled "Papier Collection" would become "♻️ Papier Collection", while an unknown event type would become "🗑️ Unknown Event".
 
-| Format | Example | Description |
-|--------|---------|-------------|
-| Hex (3-digit) | `#RGB` | `#F00` for red |
-| Hex (6-digit) | `#RRGGBB` | `#FF5733` for orange-red |
-| Color name | `red`, `blue`, `green` | Standard color names |
-
-#### **Color Examples**
+**Another example (Austrian holidays):**
 
 ```json
 {
-  "ics_feeds": [
-    {
-      "url": "https://app.muellapp.com/ical/74418",
-      "calendar_color": "#4CAF50",  // Green for waste collection
-      "categories": {
-        "append": ["Waste Collection", "Municipal"]
-      }
-    },
-    {
-      "url": "https://feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
-      "calendar_color": "#FF5733",  // Orange for holidays
-      "categories": {
-        "prepend": ["Austrian"]
-      }
-    },
-    {
-      "url": "https://better-f1-calendar.vercel.app/api/calendar.ics",
-      "calendar_color": "#2196F3",  // Blue for F1 racing
-      "categories": {
-        "append": ["Sports", "Racing"]
-      }
-    }
-  ]
+  "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
+  "emoji_mapping": {
+    "Ostern": "🐰",
+    "Weihnachten": "🎄",
+    "Neujahr": "🎆",
+    "§": "🇦🇹",
+    "default": "🗓️"
+  }
 }
 ```
 
-#### **How It Works**
+### 🏷️ Categories Support
 
-1. The `calendar_color` property is added to each event from the feed
-2. The color is embedded in the iCalendar data (RFC 7986 compliant)
-3. Modern CalDAV clients that support RFC 7986 will display these colors
-4. The color assignment is per-event and can vary by feed
-
-#### **Client Support**
-
-- ✅ **Thunderbird**: Supports RFC 7986 color property
-- ✅ **Evolution**: Supports RFC 7986 color property
-- ✅ **Nextcloud Calendar**: Supports RFC 7986 color property
-- ✅ **mailbox.org**: Supports RFC 7986 color property
-- ⚠️ **Some mobile clients**: May not support RFC 7986 yet
-
-**Note**: Even if a client doesn't support RFC 7986, the color information is stored in the event and won't cause issues.
-
-#### **Fallback Behavior**
-
-If your CalDAV client doesn't support RFC 7986 color properties, the events will still be created normally. The color information will be embedded in the event data but may be ignored by the client.
-
-#### **Use Cases**
-
-- **Visual organization**: Different feeds use different colors
-- **Quick identification**: Waste collection vs holidays vs sports events
-- **Calendar segmentation**: Each type of event has its own color
-- **Client-side filtering**: Use colors to identify event categories
-
-#### **Limitations**
-
-- Color assignment is client-dependent
-- Not all CalDAV clients support RFC 7986 yet
-- Colors may not be visible in all calendar applications
-- The color property is additional metadata, not required for functionality
-
-### **🏷️ Categories Support (Continued)
+Categories allow you to organize and filter events in your calendar client. The `categories` configuration provides comprehensive control over how event categories are handled:
 
 #### **Category Configuration Options**
 
@@ -388,53 +343,100 @@ Many calendar clients (Thunderbird, Evolution, etc.) support **category-based co
 
 **Reference**: [Thunderbird Calendar Categories](https://support.mozilla.org/en-US/kb/calendar-categories)  
 
-**How it works:**
 
-The `emoji_mapping` object in your feed configuration uses **event title matching** to determine which emoji to prepend to an event:
+### 🎨 Event Colors (RFC 7986)
 
-1. **Exact key matching**: The script checks if any key in the `emoji_mapping` object matches part of the event's title
-2. **Prepending**: When a match is found, the corresponding emoji is prepended to the event title
-3. **Fallback**: If the event title doesn't match any configured keys, the `"default"` emoji is used
-4. **Case-sensitive**: Matching is case-sensitive
+You can assign colors to individual events using the `calendar_color` property in your feed configuration. This follows the [RFC 7986](https://icalendar.org/New-Properties-for-iCalendar-RFC-7986/5-9-color-property.html) standard for iCalendar color properties.
 
-**Key points:**
+#### **Color Configuration**
 
-- The `emoji_mapping` object accepts any string as a key (words, phrases, special characters, etc.)
-- The `"default"` key is a special reserved field that serves as a fallback emoji when no other keys match
-- Values must be emojis or text that will be prepended to the event title
-- You can configure multiple mappings per feed
-
-**Examples:**
+Add `calendar_color` to any feed configuration:
 
 ```json
 {
-  "url": "https://example.com/waste.ics",
-  "emoji_mapping": {
-    "Papier": "♻️",
-    "Plastik": "🟡",
-    "Glas": "🟢",
-    "Restmüll": "⚫",
-    "default": "🗑️"
+  "url": "https://example.com/my.ics",
+  "calendar_color": "#FF5733",  // Orange-red color
+  "categories": {
+    "append": ["Important"]
   }
 }
 ```
 
-With the above configuration, an event titled "Papier Collection" would become "♻️ Papier Collection", while an unknown event type would become "🗑️ Unknown Event".
+#### **Supported Color Formats**
 
-**Another example (Austrian holidays):**
+| Format | Example | Description |
+|--------|---------|-------------|
+| Hex (3-digit) | `#RGB` | `#F00` for red |
+| Hex (6-digit) | `#RRGGBB` | `#FF5733` for orange-red |
+| Color name | `red`, `blue`, `green` | Standard color names |
+
+#### **Color Examples**
 
 ```json
 {
-  "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
-  "emoji_mapping": {
-    "Ostern": "🐰",
-    "Weihnachten": "🎄",
-    "Neujahr": "🎆",
-    "§": "🇦🇹",
-    "default": "🗓️"
-  }
+  "ics_feeds": [
+    {
+      "url": "https://app.muellapp.com/ical/74418",
+      "calendar_color": "#4CAF50",  // Green for waste collection
+      "categories": {
+        "append": ["Waste Collection", "Municipal"]
+      }
+    },
+    {
+      "url": "https://feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
+      "calendar_color": "#FF5733",  // Orange for holidays
+      "categories": {
+        "prepend": ["Austrian"]
+      }
+    },
+    {
+      "url": "https://better-f1-calendar.vercel.app/api/calendar.ics",
+      "calendar_color": "#2196F3",  // Blue for F1 racing
+      "categories": {
+        "append": ["Sports", "Racing"]
+      }
+    }
+  ]
 }
 ```
+
+#### **How It Works**
+
+1. The `calendar_color` property is added to each event from the feed
+2. The color is embedded in the iCalendar data (RFC 7986 compliant)
+3. Modern CalDAV clients that support RFC 7986 will display these colors
+4. The color assignment is per-event and can vary by feed
+
+#### **Client Support**
+
+- ✅ **Thunderbird**: Supports RFC 7986 color property
+- ✅ **Evolution**: Supports RFC 7986 color property
+- ✅ **Nextcloud Calendar**: Supports RFC 7986 color property
+- ✅ **mailbox.org**: Supports RFC 7986 color property
+- ⚠️ **Some mobile clients**: May not support RFC 7986 yet
+
+**Note**: Even if a client doesn't support RFC 7986, the color information is stored in the event and won't cause issues.
+
+#### **Fallback Behavior**
+
+If your CalDAV client doesn't support RFC 7986 color properties, the events will still be created normally. The color information will be embedded in the event data but may be ignored by the client.
+
+#### **Use Cases**
+
+- **Visual organization**: Different feeds use different colors
+- **Quick identification**: Waste collection vs holidays vs sports events
+- **Calendar segmentation**: Each type of event has its own color
+- **Client-side filtering**: Use colors to identify event categories
+
+#### **Limitations**
+
+- Color assignment is client-dependent
+- Not all CalDAV clients support RFC 7986 yet
+- Colors may not be visible in all calendar applications
+- The color property is additional metadata, not required for functionality
+
+
+
 
 ### ⏰ Default Reminder Format
 
