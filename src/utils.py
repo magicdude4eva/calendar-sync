@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import requests
 from ics import Calendar, Event, alarm
 from ics.alarm import DisplayAlarm
+from ics.grammar.parse import ContentLine
 
 # Suppress FutureWarnings from ics package
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -342,7 +343,7 @@ def import_ics_feed(
             # Set event color if configured (RFC 7986 color property)
             if "calendar_color" in feed_config:
                 color = feed_config["calendar_color"]
-                new_event.color = color
+                new_event.extra.append(ContentLine(name="COLOR", value=color))
                 logger.debug(f"Set event color to {color} for {new_event.name}")
 
             new_event.url = event.url or None
