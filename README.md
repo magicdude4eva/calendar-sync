@@ -226,7 +226,11 @@ With the above configuration, an event titled "Papier Collection" would become "
 
 ### 🏷️ Categories Support
 
-Categories allow you to organize and filter events in your calendar client. The `categories` configuration provides comprehensive control over how event categories are handled:
+Categories allow you to organize and filter events in your calendar client.
+<img width="1282" height="774" alt="image" src="https://github.com/user-attachments/assets/56eafbe0-696e-44b8-bf23-0566f7a3f617" />
+
+
+The `categories` configuration provides comprehensive control over how event categories are handled:
 
 #### **Category Configuration Options**
 
