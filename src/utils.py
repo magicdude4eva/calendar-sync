@@ -339,6 +339,12 @@ def import_ics_feed(
 
             new_event.categories = categories if categories else None
 
+            # Set event color if configured (RFC 7986 color property)
+            if "calendar_color" in feed_config:
+                color = feed_config["calendar_color"]
+                new_event.color = color
+                logger.debug(f"Set event color to {color} for {new_event.name}")
+
             new_event.url = event.url or None
 
             if event.all_day:

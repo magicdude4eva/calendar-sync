@@ -24,6 +24,7 @@
       {
         "url": "https://app.muellapp.com/ical/74418?area_filter=145382%2C145383%2C151900&reminder&day=1&time=18:00",
         "uid_prefix": "MUELL-",
+        "calendar_color": "#D3F4C7",
         "emoji_mapping": {
           "Restmüll": "🗑️",
           "Papier": "♻️",
@@ -37,6 +38,7 @@
         "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
         "uid_prefix": "HOLIDAY-",
         "import_locations": "K,St",
+        "calendar_color": "#FFBDD1",
         "emoji_mapping": {
           "§": "🇦🇹",
           "default": "🗓️"
@@ -49,6 +51,7 @@
       {
         "url": "https://better-f1-calendar.vercel.app/api/calendar.ics",
         "uid_prefix": "F1-",
+        "calendar_color": "#BFE9FD",
         "emoji_mapping": {
           " - Practice ": "🏎️",
           "FP1": "🏎️",
