@@ -87,6 +87,26 @@
         }
       },
       {
+        "url": "https://example.com/tenniscup.ics",
+        "uid_prefix": "TENNIS-",
+        "emoji_mapping": {
+          "default": "🎾"
+        },
+        "filter": {
+          "include": ["Tournament Finals", "Grand Slam"]
+        }
+      },
+      {
+        "url": "https://example.com/all-sports.ics",
+        "uid_prefix": "SPORTS-",
+        "emoji_mapping": {
+          "default": "🏅"
+        },
+        "filter": {
+          "exclude": ["Preliminary", "Qualifying", "Practice"]
+        }
+      },
+      {
         "url": "https://example.com/third-party.ics",
         "uid_prefix": "EXAMPLE-",
         "categories": {

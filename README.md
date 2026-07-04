@@ -19,6 +19,7 @@ It supports features such as:
 - 🔁 Full support for recurring events (e.g., yearly holidays) and custom extra events (Mother's Day, Advent Sundays, etc.)
 - 🧼 Cleanup mode with multi-prefix support (`--cleanup PREFIX1,PREFIX2`)
 - 📍 Location-based filtering (e.g., for regional holidays in Austria)
+- 🔍 Event title filtering with regex (include/exclude patterns)
 - 🐳 Docker deployment for simple automation
 - 💡 Dry-run mode to preview changes without writing
 - 🕓 Timezone-aware handling for accurate scheduling
@@ -51,6 +52,7 @@ ___
 - 🧠 Deterministic UID generation & deduplication
 - 🔁 Automatic expansion of YEARLY recurring events
 - 📍 Location-based filtering for region-specific holidays
+- 🔍 Event title filtering with regex patterns (include/exclude)
 - 🧹 Optional cleanup of old imported events
 - 📅 Supports emoji mapping for event names
 - 🛑 Dry run mode to test before writing
@@ -137,6 +139,13 @@ Example config:
         "default": "📦"
       },
       "default_reminder": "1d"
+    },
+    {
+      "url": "https://example.com/sports.ics",
+      "uid_prefix": "SPORTS-",
+      "filter": {
+        "exclude": ["Preliminary", "Qualifying", "Practice"]
+      }
     }
   ]
 }
@@ -172,67 +181,57 @@ To discover valid locations, run the sync once and check the logs. Example:
 INFO: ⏭️ Skipping 'St. Florian' (2025-05-04) due to unmatched location: OÖ
 ```
 
+### 🔍 Event Title Filtering
+
+Filter events based on their title using regex patterns. You can either **include** only matching events or **exclude** matching events. These modes are mutually exclusive — you cannot use both at the same time for the same feed.
+
+**Configuration:**
+```json
+{
+  "url": "https://example.com/calendar.ics",
+  "uid_prefix": "FILTERED-",
+  "filter": {
+    "include": ["Tournament Finals", "Grand Slam"]
+  }
+}
+```
+
+```json
+{
+  "url": "https://example.com/calendar.ics",
+  "uid_prefix": "FILTERED-",
+  "filter": {
+    "exclude": ["Preliminary", "Qualifying", "Practice"]
+  }
+}
+```
+
+**Regex Examples:**
+
+| Pattern | Matches | Description |
+|---------|---------|-------------|
+| `"Tournament Finals"` | Events containing "Tournament Finals" | Simple substring match |
+| `"^Final:"` | Events starting with "Final:" | Anchored at start |
+| `"(Prelim|Semi|Quarter)"` | Events containing any of these words | OR logic with grouping |
+| `"2026"` | Events containing "2026" | Year filtering |
+| `"(Grand Prix|World Cup)"` | Events containing either phrase | Multiple patterns |
+| `".*Championship.*"` | Events with "Championship" anywhere | Flexible matching |
+| `"^[A-Z].*"` | Events starting with uppercase letter | Pattern at start |
+
+**How it works:**
+- **Include mode**: Only events matching at least one pattern are imported
+- **Exclude mode**: Events matching any pattern are skipped
+- **Mutually exclusive**: If both `include` and `exclude` are present, both are ignored with a warning
+- **Applied early**: Filtering happens before emoji mapping and other processing
+- **Per-feed**: Each feed can have its own filter configuration
+
 ### 📱 Emoji Mapping
 
 Emoji mapping allows you to prefix event titles with emojis for better visual organization in your calendar. This is particularly useful when syncing multiple ICS feeds to distinguish between different event types at a glance.
 
-**How it works:**
-
-The `emoji_mapping` object in your feed configuration uses **event title matching** to determine which emoji to prepend to an event:
-
-1. **Exact key matching**: The script checks if any key in the `emoji_mapping` object matches part of the event's title
-2. **Prepending**: When a match is found, the corresponding emoji is prepended to the event title
-3. **Fallback**: If the event title doesn't match any configured keys, the `"default"` emoji is used
-4. **Case-sensitive**: Matching is case-sensitive
-
-**Key points:**
-
-- The `emoji_mapping` object accepts any string as a key (words, phrases, special characters, etc.)
-- The `"default"` key is a special reserved field that serves as a fallback emoji when no other keys match
-- Values must be emojis or text that will be prepended to the event title
-- You can configure multiple mappings per feed
-
-**Examples:**
-
-```json
-{
-  "url": "https://example.com/waste.ics",
-  "emoji_mapping": {
-    "Papier": "♻️",
-    "Plastik": "🟡",
-    "Glas": "🟢",
-    "Restmüll": "⚫",
-    "default": "🗑️"
-  }
-}
-```
-
-With the above configuration, an event titled "Papier Collection" would become "♻️ Papier Collection", while an unknown event type would become "🗑️ Unknown Event".
-
-**Another example (Austrian holidays):**
-
-```json
-{
-  "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
-  "emoji_mapping": {
-    "Ostern": "🐰",
-    "Weihnachten": "🎄",
-    "Neujahr": "🎆",
-    "§": "🇦🇹",
-    "default": "🗓️"
-  }
-}
-```
-
 ### 🏷️ Categories Support
 
-Categories allow you to organize and filter events in your calendar client.
-<img width="1282" height="774" alt="image" src="https://github.com/user-attachments/assets/56eafbe0-696e-44b8-bf23-0566f7a3f617" />
-
-
-The `categories` configuration provides comprehensive control over how event categories are handled:
-
-#### **Category Configuration Options**
+Categories allow you to organize and filter events in your calendar client. The `categories` configuration provides comprehensive control over how event categories are handled:
 
 The `categories` object in your feed configuration supports multiple operations:
 
@@ -347,10 +346,9 @@ Many calendar clients (Thunderbird, Evolution, etc.) support **category-based co
 
 **Reference**: [Thunderbird Calendar Categories](https://support.mozilla.org/en-US/kb/calendar-categories)  
 
-
 ### 🎨 Event Colors (RFC 7986)
 
-You can assign colors to individual events using the `calendar_color` property in your feed configuration. This follows the [RFC 7986](https://icalendar.org/New-Properties-for-iCalendar-RFC-7986/5-9-color-property.html) standard for iCalendar color properties. For supported colors in refer to [CSS Color Names](https://www.cssportal.com/css-color-names/).
+You can assign colors to individual events using the `calendar_color` property in your feed configuration. This follows the [RFC 7986](https://icalendar.org/New-Properties-for-iCalendar-RFC-7986/5-9-color-property.html) standard for iCalendar color properties.
 
 #### **Color Configuration**
 
@@ -439,8 +437,53 @@ If your CalDAV client doesn't support RFC 7986 color properties, the events will
 - Colors may not be visible in all calendar applications
 - The color property is additional metadata, not required for functionality
 
+**How it works:**
 
+The `emoji_mapping` object in your feed configuration uses **event title matching** to determine which emoji to prepend to an event:
 
+1. **Exact key matching**: The script checks if any key in the `emoji_mapping` object matches part of the event's title
+2. **Prepending**: When a match is found, the corresponding emoji is prepended to the event title
+3. **Fallback**: If the event title doesn't match any configured keys, the `"default"` emoji is used
+4. **Case-sensitive**: Matching is case-sensitive
+
+**Key points:**
+
+- The `emoji_mapping` object accepts any string as a key (words, phrases, special characters, etc.)
+- The `"default"` key is a special reserved field that serves as a fallback emoji when no other keys match
+- Values must be emojis or text that will be prepended to the event title
+- You can configure multiple mappings per feed
+
+**Examples:**
+
+```json
+{
+  "url": "https://example.com/waste.ics",
+  "emoji_mapping": {
+    "Papier": "♻️",
+    "Plastik": "🟡",
+    "Glas": "🟢",
+    "Restmüll": "⚫",
+    "default": "🗑️"
+  }
+}
+```
+
+With the above configuration, an event titled "Papier Collection" would become "♻️ Papier Collection", while an unknown event type would become "🗑️ Unknown Event".
+
+**Another example (Austrian holidays):**
+
+```json
+{
+  "url": "https://www.feiertage-oesterreich.at/kalender-download/ics/feiertage-oesterreich.ics",
+  "emoji_mapping": {
+    "Ostern": "🐰",
+    "Weihnachten": "🎄",
+    "Neujahr": "🎆",
+    "§": "🇦🇹",
+    "default": "🗓️"
+  }
+}
+```
 
 ### ⏰ Default Reminder Format
 

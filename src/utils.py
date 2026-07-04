@@ -278,6 +278,55 @@ def import_ics_feed(
                     continue
 
             original_title = (event.name or "Untitled").strip()
+
+            # ===== NEW: Apply title filter =====
+            filter_config = feed_config.get("filter", {})
+            include_patterns = filter_config.get("include")
+            exclude_patterns = filter_config.get("exclude")
+
+            # Validate mutual exclusivity
+            if include_patterns and exclude_patterns:
+                logger.warning(
+                    "⚠️ Filter error: cannot use both 'include' and 'exclude' for the same feed. "
+                    "Ignoring both filters."
+                )
+                include_patterns = None
+                exclude_patterns = None
+
+            # Apply include filter (must match at least one pattern)
+            if include_patterns:
+                try:
+                    matched = any(
+                        re.search(pattern, original_title)
+                        for pattern in include_patterns
+                    )
+                    if not matched:
+                        logger.info(
+                            f"⏩ Skipping event '{original_title}' – does not match include filter"
+                        )
+                        continue
+                except re.error as e:
+                    logger.warning(
+                        f"⚠️ Invalid include regex pattern for feed {feed_config.get('url')}: {e}"
+                    )
+
+            # Apply exclude filter (must NOT match any pattern)
+            if exclude_patterns:
+                try:
+                    matched = any(
+                        re.search(pattern, original_title)
+                        for pattern in exclude_patterns
+                    )
+                    if matched:
+                        logger.info(
+                            f"⏩ Skipping event '{original_title}' – matches exclude filter"
+                        )
+                        continue
+                except re.error as e:
+                    logger.warning(
+                        f"⚠️ Invalid exclude regex pattern for feed {feed_config.get('url')}: {e}"
+                    )
+
             emoji = next(
                 (
                     symbol
