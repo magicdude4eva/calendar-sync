@@ -1,0 +1,14 @@
+.git
+.github
+.chglog
+.gitignore
+.dockerignore
+.DS_Store
+docs
+*.md
+config.json
+config.json.example
+docker-compose.yml
+Dockerfile
+**/__pycache__
+**/*.py[cod]
