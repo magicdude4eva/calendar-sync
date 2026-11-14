@@ -1,13 +1,12 @@
-version: "3.9"
-
 services:
   calendar-sync:
+    # Published image (see .github/workflows/docker-publish.yml).
+    # `docker compose pull` fetches it; `docker compose build` builds it locally instead.
+    image: ghcr.io/magicdude4eva/calendar-sync:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: calendar-sync
     volumes:
       - ./config.json:/app/config.json:ro
-    environment:
-      - PYTHONUNBUFFERED=1
-    command: ["python", "src/calendar_sync.py", "--import"]
+    # Arguments passed to the ENTRYPOINT defined in the Dockerfile
+    command: ["--import"]

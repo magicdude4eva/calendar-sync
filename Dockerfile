@@ -1,24 +1,18 @@
 FROM python:3.14-slim
 
-# Set working directory
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 WORKDIR /app
 
-# Install required system packages
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libxml2-dev \
-    libxslt-dev \
-    libffi-dev \
-    libssl-dev \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
+# All dependencies ship prebuilt wheels for amd64 and arm64, so no compiler
+# toolchain is needed (keeps the image small and multi-arch builds fast).
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-# Copy all source code
-COPY . .
+COPY src/ src/
 
-# Set the default entrypoint so we can pass in args like --import or --cleanup
+# Pass arguments like --import, --cleanup or --dry-run to the container
 ENTRYPOINT ["python", "src/calendar_sync.py"]
