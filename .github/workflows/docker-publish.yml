@@ -80,3 +80,28 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    # Create the GitHub Release once tests passed and the image is published.
+    # Notes are generated from merged pull requests; edit them on GitHub afterwards
+    # if you want hand-written notes. Existing releases are left untouched, so a
+    # manual re-run (workflow_dispatch) can also back-fill a missing release.
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists - leaving it unchanged."
+            exit 0
+          fi
+          gh release create "$VERSION" \
+            --verify-tag \
+            --title "$VERSION" \
+            --generate-notes \
+            --notes "🐳 Docker image: \`ghcr.io/${GH_REPO}:${VERSION}\`"
