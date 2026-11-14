@@ -13,10 +13,10 @@
       "🧾 Steuererklärung:30.6.fixed",
       "🌒 Sommerzeit endet:-1.Sunday.10",
       "🎃 Halloween:31.10.fixed",
-      "🕯️ 1. Advent:-4.Sunday.12",
-      "🕯️ 2. Advent:-3.Sunday.12",
-      "🕯️ 3. Advent:-2.Sunday.12",
-      "🕯️ 4. Advent:-1.Sunday.12",
+      "🕯️ 1. Advent:4.Sunday.before.25.12",
+      "🕯️ 2. Advent:3.Sunday.before.25.12",
+      "🕯️ 3. Advent:2.Sunday.before.25.12",
+      "🕯️ 4. Advent:1.Sunday.before.25.12",
       "👹 Krampusnacht:5.12.fixed",
       "🎅 Nikolaus:6.12.fixed"
       ],
@@ -51,6 +51,8 @@
       {
         "url": "https://better-f1-calendar.vercel.app/api/calendar.ics",
         "uid_prefix": "F1-",
+        "remove_stale": true,
+        "update_existing": true,
         "calendar_color": "#BFE9FD",
         "emoji_mapping": {
           " - Practice ": "🏎️",

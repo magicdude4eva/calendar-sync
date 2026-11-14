@@ -12,3 +12,8 @@ docker-compose.yml
 Dockerfile
 **/__pycache__
 **/*.py[cod]
+tests
+requirements-dev.txt
+pyproject.toml
+.venv
+.pytest_cache

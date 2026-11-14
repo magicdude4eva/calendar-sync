@@ -3,7 +3,6 @@
 import hashlib
 import logging
 import re
-import warnings
 from calendar import (
     FRIDAY,
     MONDAY,
@@ -14,18 +13,22 @@ from calendar import (
     WEDNESDAY,
     monthcalendar,
 )
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import icalendar
+import recurring_ical_events
 import requests
-from ics import Calendar, Event, alarm
-from ics.alarm import DisplayAlarm
-from ics.grammar.parse import ContentLine
 
-# Suppress FutureWarnings from ics package
-warnings.filterwarnings("ignore", category=FutureWarning)
+UTC = ZoneInfo("UTC")
 
 logger = logging.getLogger("calendar_sync")
+
+# Timeout (seconds) for fetching ICS feeds: (connect, read)
+FEED_TIMEOUT = (10, 60)
+
+# Feed events that started up to this long ago are still imported
+PAST_GRACE = timedelta(weeks=2)
 
 
 def fetch_all_events(calendar):
@@ -38,14 +41,15 @@ def fetch_all_events(calendar):
 
 def extract_uid(event):
     try:
-        if hasattr(event, "uid") and event.uid:
-            return event.uid
-        serialized = (
-            event.data.serialize()
-            if hasattr(event.data, "serialize")
-            else str(event.data)
-        )
-        match = re.search(r"UID:(.+)", serialized)
+        uid = event.icalendar_component.get("UID")
+        if uid:
+            return str(uid).strip()
+    except Exception as e:
+        logger.debug(f"Could not read UID from parsed component: {e}")
+    try:
+        # Fallback: match a UID property at the start of a line only, so that
+        # properties like X-SOMETHING-UID or text inside descriptions are ignored.
+        match = re.search(r"^UID:(.+)$", str(event.data), re.MULTILINE)
         if match:
             return match.group(1).strip()
     except Exception as e:
@@ -109,77 +113,84 @@ def deterministic_uid(prefix, title, start):
     return f"{prefix}{normalized_start.year}-{uid_hash[:16]}"
 
 
-def expand_yearly_events(event, until_date):
-    current_year = datetime.now().year
-    end_year = until_date.year
-    expanded_dates = [
-        event.begin.replace(year=year).datetime
-        for year in range(current_year, end_year + 1)
-    ]
-    logger.debug(f"Expanding yearly event '{event.name}': {expanded_dates}")
-    return expanded_dates
+WEEKDAYS = {
+    "Monday": MONDAY,
+    "Tuesday": TUESDAY,
+    "Wednesday": WEDNESDAY,
+    "Thursday": THURSDAY,
+    "Friday": FRIDAY,
+    "Saturday": SATURDAY,
+    "Sunday": SUNDAY,
+}
+
+RULE_FIXED = re.compile(r"^(\d{1,2})\.(\d{1,2})\.fixed$")
+RULE_NTH_WEEKDAY = re.compile(r"^(-?\d+)\.([A-Za-z]+)\.(\d{1,2})$")
+RULE_RELATIVE = re.compile(r"^(\d+)\.([A-Za-z]+)\.(before|after)\.(\d{1,2})\.(\d{1,2})$")
+
+
+def rule_date(rule, year):
+    """
+    Resolve an extra_events rule to a date in the given year, or None if the
+    rule yields no date that year (e.g. a 5th Sunday that does not exist).
+    Raises ValueError for unsupported or invalid rules.
+
+    Supported rules:
+      DD.MM.fixed               fixed date              31.10.fixed
+      N.Weekday.MM              Nth weekday of month    2.Sunday.5
+      -N.Weekday.MM             Nth weekday from end    -1.Sunday.3
+      N.Weekday.before.DD.MM    Nth weekday strictly    1.Sunday.before.25.12
+      N.Weekday.after.DD.MM       before/after a date   (4th Advent)
+    """
+    if m := RULE_FIXED.match(rule):
+        day, month = int(m[1]), int(m[2])
+        return date(year, month, day)
+
+    if m := RULE_NTH_WEEKDAY.match(rule):
+        n, weekday, month = int(m[1]), _weekday(m[2]), int(m[3])
+        days = [week[weekday] for week in monthcalendar(year, month) if week[weekday]]
+        if n == 0 or abs(n) > len(days):
+            return None
+        return date(year, month, days[n - 1 if n > 0 else n])
+
+    if m := RULE_RELATIVE.match(rule):
+        n, weekday, direction = int(m[1]), _weekday(m[2]), m[3]
+        anchor = date(year, int(m[5]), int(m[4]))
+        if n == 0:
+            raise ValueError("N must be at least 1")
+        if direction == "before":
+            back = (anchor.weekday() - weekday - 1) % 7 + 1  # 1..7 days back
+            return anchor - timedelta(days=back + 7 * (n - 1))
+        forward = (weekday - anchor.weekday() - 1) % 7 + 1  # 1..7 days forward
+        return anchor + timedelta(days=forward + 7 * (n - 1))
+
+    raise ValueError(f"unsupported rule format '{rule}'")
+
+
+def _weekday(name):
+    try:
+        return WEEKDAYS[name.capitalize()]
+    except KeyError:
+        raise ValueError(f"unknown weekday '{name}'") from None
 
 
 def compute_extra_events(config, uid_prefix, tz, now, until_date):
     extra_events = []
-    weekday_map = {
-        "Sunday": SUNDAY,
-        "Monday": MONDAY,
-        "Tuesday": TUESDAY,
-        "Wednesday": WEDNESDAY,
-        "Thursday": THURSDAY,
-        "Friday": FRIDAY,
-        "Saturday": SATURDAY,
-    }
 
     for entry in config.get("extra_events", []):
         try:
             emoji, rest = entry.split(" ", 1)
-            title, rule = rest.split(":")
-
-            # Fixed date like 21.6.fixed
-            if re.match(r"^\d{1,2}\.\d{1,2}\.fixed$", rule):
-                day, month, _ = rule.split(".")
-                day = int(day)
-                month = int(month)
-                for year in range(now.year, until_date.year + 1):
-                    dt = datetime(year, month, day, tzinfo=tz)
-                    if now <= dt <= until_date:
-                        event = Event()
-                        event.name = f"{emoji} {title}".strip()
-                        event.begin = dt.date()
-                        event.make_all_day()
-                        event.uid = deterministic_uid(uid_prefix, title, dt)
-                        event.created = now
-                        extra_events.append(event)
-
-            # Nth weekday of month like 2.Sunday.5 or -1.Sunday.3
-            elif re.match(r"^-?\d+\.[A-Za-z]+\.-?\d+$", rule):
-                week, weekday_str, month = rule.split(".")
-                weekday = weekday_map.get(weekday_str)
-                month = int(month)
-                n = int(week)
-                for year in range(now.year, until_date.year + 1):
-                    cal = monthcalendar(year, month)
-                    days = [week[weekday] for week in cal if week[weekday] != 0]
-                    if n > 0 and len(days) >= n:
-                        day = days[n - 1]
-                    elif n < 0 and len(days) >= abs(n):
-                        day = days[n]
-                    else:
-                        continue
-                    dt = datetime(year, month, day, tzinfo=tz)
-                    if now <= dt <= until_date:
-                        event = Event()
-                        event.name = f"{emoji} {title}".strip()
-                        event.begin = dt.date()
-                        event.make_all_day()
-                        event.uid = deterministic_uid(uid_prefix, title, dt)
-                        event.created = now
-                        extra_events.append(event)
-            else:
-                logger.warning(f"⚠️ Unsupported rule format in extra_event: '{entry}'")
-
+            title, rule = rest.rsplit(":", 1)
+            rule = rule.strip()
+            for year in range(now.year, until_date.year + 1):
+                day = rule_date(rule, year)
+                if day is None:
+                    continue
+                dt = datetime(day.year, day.month, day.day, tzinfo=tz)
+                if now <= dt <= until_date:
+                    uid = deterministic_uid(uid_prefix, title, dt)
+                    event = new_event(uid, f"{emoji} {title}".strip(), now)
+                    event.add("DTSTART", day)
+                    extra_events.append(event)
         except Exception as e:
             logger.warning(f"⚠️ Failed to process extra_event '{entry}': {e}")
 
@@ -194,7 +205,9 @@ def parse_alarm(offset):
     regex = re.match(r"^(\d+)([dhm])$", offset.lower())
 
     if not regex:
-        raise ("Error, invalid reminder value")
+        raise ValueError(
+            f"invalid reminder value '{offset}' (expected e.g. '1d', '2h', '15m')"
+        )
 
     val = int(regex.group(1))
     unit = regex.group(2)
@@ -206,258 +219,528 @@ def parse_alarm(offset):
         return timedelta(minutes=-val)
 
 
-def import_ics_feed(
-    calendar, feed_config, uid_prefix, existing_uids, config=None, dry_run=False
-):
-    url = feed_config["url"]
-    logger.info(f"📥 Fetching ICS feed: {url}")
-    response = requests.get(url)
+# ---------------------------------------------------------------------------
+# Building events
+# ---------------------------------------------------------------------------
+
+PRODID = "-//magicdude4eva//calendar-sync//EN"
+
+
+def new_event(uid, summary, now):
+    """Create a VEVENT with the properties every synced event carries."""
+    event = icalendar.Event()
+    event.add("UID", uid)
+    event.add("SUMMARY", summary)
+    event.add("DTSTAMP", now.astimezone(UTC))
+    event.add("CREATED", now.astimezone(UTC))
+    return event
+
+
+def to_ics(event):
+    """Wrap a single VEVENT in a VCALENDAR, ready for calendar.save_event()."""
+    cal = icalendar.Calendar()
+    cal.add("PRODID", PRODID)
+    cal.add("VERSION", "2.0")
+    cal.add_component(event)
+    return cal.to_ical().decode("utf-8")
+
+
+def display_alarm(trigger, description):
+    alarm = icalendar.Alarm()
+    alarm.add("ACTION", "DISPLAY")
+    alarm.add("DESCRIPTION", description)
+    alarm.add("TRIGGER", trigger)
+    return alarm
+
+
+# ---------------------------------------------------------------------------
+# Reading feeds
+# ---------------------------------------------------------------------------
+
+
+def fetch_feed(url, cleanup_rules=()):
+    """Download an ICS feed and apply the configured cleanup_regex rules."""
+    response = requests.get(url, timeout=FEED_TIMEOUT)
     response.raise_for_status()
 
-    ics_data = response.content.decode("utf-8")
-    for rule in feed_config.get("cleanup_regex", []):
-        pattern = rule["pattern"]
-        replacement = rule["replacement"]
-        ics_data = re.sub(pattern, replacement, ics_data)
-
     try:
-        cal = Calendar(ics_data)
+        ics_data = response.content.decode("utf-8")
     except UnicodeDecodeError:
         logger.warning("⚠️ UTF-8 decode failed, falling back to ISO-8859-1")
-        cal = Calendar(response.content.decode("iso-8859-1"))
+        ics_data = response.content.decode("iso-8859-1")
 
-    logger.info(f"📅 Found {len(cal.events)} events in feed")
+    for rule in cleanup_rules:
+        ics_data = re.sub(rule["pattern"], rule["replacement"], ics_data)
+    return ics_data
+
+
+def _sanitize(cal):
+    """
+    Repair problems that would otherwise break or distort recurrence expansion:
+    - events without DTSTART are dropped
+    - all-day values that also carry a TZID (e.g. DTSTART;TZID=X;VALUE=DATE) are
+      turned back into plain dates; icalendar would read them as midnight datetimes
+    - a DTEND that is not after DTSTART is removed (the event keeps its start)
+    """
+    kept = []
+    for component in cal.subcomponents:
+        if component.name == "VEVENT":
+            summary = component.get("SUMMARY", "Untitled")
+            if "DTSTART" not in component:
+                logger.info(f"⏭️ Skipping event '{summary}' due to missing begin date.")
+                continue
+            for prop in ("DTSTART", "DTEND", "RECURRENCE-ID"):
+                _force_date_value(component, prop)
+            if "DTEND" in component:
+                try:
+                    start, end = component.decoded("DTSTART"), component.decoded("DTEND")
+                    start_utc, end_utc = _as_utc(start, UTC), _as_utc(end, UTC)
+                except (TypeError, ValueError):
+                    start_utc = end_utc = None
+                if end_utc is None or end_utc <= start_utc:
+                    if end_utc is not None and end_utc < start_utc:
+                        logger.warning(f"⚠️ Ignoring end time of '{summary}': it is before the start")
+                    del component["DTEND"]
+        kept.append(component)
+    cal.subcomponents = kept
+    return cal
+
+
+def _force_date_value(component, prop):
+    """Honour VALUE=DATE even when a TZID parameter is present."""
+    if prop not in component:
+        return
+    value = component[prop]
+    if value.params.get("VALUE", "").upper() != "DATE":
+        return
+    decoded = component.decoded(prop)
+    if isinstance(decoded, datetime):
+        del component[prop]
+        component.add(prop, decoded.date())
+
+
+def _as_utc(value, tz):
+    """
+    Normalise a DTSTART/DTEND value to an aware UTC datetime.
+    All-day dates map to midnight UTC and floating times are interpreted
+    in `tz`. This is the value deterministic_uid() hashes, so it must stay
+    stable to avoid creating duplicates of already-synced events.
+    """
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=tz)
+        return value.astimezone(UTC)
+    return datetime(value.year, value.month, value.day, tzinfo=UTC)
+
+
+def feed_occurrences(ics_data, tz, window_start, window_end):
+    """
+    Parse a feed and return every event occurrence that starts inside
+    [window_start, window_end], sorted by start. Recurring events (RRULE,
+    RDATE, EXDATE and moved instances via RECURRENCE-ID) are expanded into
+    individual occurrences.
+
+    Returns a list of (start_utc, all_day, component) tuples.
+    """
+    cal = _sanitize(icalendar.Calendar.from_ical(ics_data))
+    logger.info(f"📅 Found {len(cal.walk('VEVENT'))} events in feed")
+
+    occurrences = []
+    query = recurring_ical_events.of(cal, skip_bad_series=True)
+    for component in query.between(window_start, window_end):
+        start = component.decoded("DTSTART")
+        start_utc = _as_utc(start, tz)
+        if not window_start <= start_utc <= window_end:
+            continue  # overlaps the window but starts outside it
+        all_day = not isinstance(start, datetime)
+        occurrences.append((start_utc, all_day, component))
+
+    occurrences.sort(key=lambda o: o[0])
+    return occurrences
+
+
+def _categories(component):
+    value = component.get("CATEGORIES")
+    if value is None:
+        return []
+    items = value if isinstance(value, list) else [value]
+    return [str(cat) for item in items for cat in item.cats]
+
+
+def apply_category_rules(categories, rules):
+    """Apply a feed's 'categories' configuration (see README for the order)."""
+    if rules.get("replace_if_empty") and not categories:
+        categories = list(rules["replace_if_empty"])
+    if "prepend" in rules:
+        categories = list(rules["prepend"]) + categories
+    if "append" in rules:
+        categories = categories + list(rules["append"])
+    if "remove" in rules:
+        categories = [cat for cat in categories if cat not in rules["remove"]]
+    if rules.get("deduplicate", True):
+        categories = list(dict.fromkeys(categories))
+    return categories
+
+
+def _title_filter(feed_config):
+    """Return a predicate title -> bool implementing the feed's include/exclude filter."""
+    filter_config = feed_config.get("filter", {})
+    include = filter_config.get("include")
+    exclude = filter_config.get("exclude")
+    url = feed_config.get("url")
+
+    if include and exclude:
+        logger.warning(
+            f"⚠️ Filter error for feed {url}: cannot use both 'include' and 'exclude'. "
+            "Ignoring both filters."
+        )
+        return lambda title: True
+
+    patterns = include or exclude
+    if not patterns:
+        return lambda title: True
+    try:
+        compiled = [re.compile(p) for p in patterns]
+    except re.error as e:
+        kind = "include" if include else "exclude"
+        logger.warning(f"⚠️ Invalid {kind} regex pattern for feed {url}: {e}")
+        return lambda title: True
+
+    def matches(title):
+        hit = any(p.search(title) for p in compiled)
+        if include and not hit:
+            logger.info(f"⏩ Skipping event '{title}' – does not match include filter")
+            return False
+        if exclude and hit:
+            logger.info(f"⏩ Skipping event '{title}' – matches exclude filter")
+            return False
+        return True
+
+    return matches
+
+
+def _location_allowed(component, import_locations):
+    location = str(component.get("LOCATION", "")).replace(" ", "")
+    if not import_locations or not location:
+        return True
+    return any(loc in location.split(",") for loc in import_locations.split(","))
+
+
+def build_feed_event(component, uid, title, start_utc, all_day, feed_config, now):
+    """Turn one feed occurrence into the VEVENT we store in the calendar."""
+    emoji_map = feed_config.get("emoji_mapping", {})
+    emoji = next(
+        (symbol for key, symbol in emoji_map.items() if key != "default" and key in title),
+        emoji_map.get("default", "❓"),
+    )
+    event = new_event(uid, f"{emoji} {title}".strip(), now)
+
+    if all_day:
+        start = component.decoded("DTSTART")
+        event.add("DTSTART", start)
+        end = component.decoded("DTEND") if "DTEND" in component else None
+        if isinstance(end, date) and not isinstance(end, datetime) and end > start:
+            event.add("DTEND", end)
+    else:
+        event.add("DTSTART", start_utc)
+        if "DTEND" in component:
+            end_utc = _as_utc(component.decoded("DTEND"), start_utc.tzinfo)
+            if end_utc > start_utc:
+                event.add("DTEND", end_utc)
+
+    for prop in ("DESCRIPTION", "LOCATION", "ORGANIZER", "URL"):
+        if component.get(prop):
+            event[prop] = component[prop]
+
+    categories = apply_category_rules(_categories(component), feed_config.get("categories", {}))
+    if categories:
+        event.add("CATEGORIES", categories)
+
+    if "calendar_color" in feed_config:
+        event.add("COLOR", feed_config["calendar_color"])
+
+    alarms = component.walk("VALARM")
+    if alarms:
+        for alarm in alarms:
+            event.add_component(alarm)
+    elif feed_config.get("default_reminder") is not None:
+        reminder = feed_config["default_reminder"]
+        try:
+            event.add_component(display_alarm(parse_alarm(reminder), str(event["SUMMARY"])))
+        except ValueError as e:
+            logger.warning(f"⚠️ Invalid reminder format '{reminder}': {e}")
+
+    return event
+
+
+# ---------------------------------------------------------------------------
+# Importing
+# ---------------------------------------------------------------------------
+
+
+def save_event(calendar, event, uid, label):
+    """Save an event; on 409 Conflict replace the existing copy. Returns True on success."""
+    try:
+        calendar.save_event(to_ics(event))
+        logger.info(f"✅ Created {label}")
+        return True
+    except Exception as e:
+        if "409" not in str(e):
+            logger.error(f"❌ Failed to create {label}: {e}")
+            return False
+
+    logger.warning(f"⚠️ Event already exists (409 Conflict): {label}. Attempting deduplication.")
+    try:
+        existing = next((ev for ev in calendar.events() if extract_uid(ev) == uid), None)
+        if not existing:
+            logger.error(f"❌ Could not find existing event with UID {uid} to deduplicate")
+            return False
+        existing.delete()
+        calendar.save_event(to_ics(event))
+        logger.info(f"♻️ Replaced duplicate event {label} after deduplication")
+        return True
+    except Exception as dedup_error:
+        logger.error(f"❌ Deduplication failed for {label}: {dedup_error}")
+        return False
+
+
+COMPARED_TEXT_PROPERTIES = ("SUMMARY", "DESCRIPTION", "LOCATION", "URL", "ORGANIZER", "COLOR")
+
+
+def event_fingerprint(component, tz):
+    """
+    The parts of an event that update_existing compares, normalised so that
+    equivalent encodings compare equal (UTC vs. local times, a missing DTEND vs.
+    the implied one-day end of an all-day event, missing vs. empty text, ...).
+    DTSTAMP, CREATED, SEQUENCE and server-added properties are ignored.
+    """
+    start = component.decoded("DTSTART")
+    all_day = not isinstance(start, datetime)
+
+    end = component.decoded("DTEND") if "DTEND" in component else None
+    if end is None and "DURATION" in component:
+        end = start + component.decoded("DURATION")
+    if end is None:
+        end = start + timedelta(days=1) if all_day else start
+
+    def norm(value):
+        return value if all_day and not isinstance(value, datetime) else _as_utc(value, tz)
+
+    fingerprint = {"start": norm(start), "end": norm(end)}
+    for prop in COMPARED_TEXT_PROPERTIES:
+        fingerprint[prop.lower()] = str(component.get(prop, "")).strip()
+    fingerprint["categories"] = _categories(component)
+
+    alarms = []
+    for alarm in component.walk("VALARM"):
+        try:
+            trigger = alarm.decoded("TRIGGER")
+        except (KeyError, ValueError):
+            continue
+        if isinstance(trigger, datetime):
+            trigger = _as_utc(trigger, tz)
+        alarms.append((str(alarm.get("ACTION", "")).upper(), str(trigger)))
+    fingerprint["alarms"] = sorted(alarms)
+    return fingerprint
+
+
+def changed_fields(existing_component, new_component, tz):
+    """Names of the fingerprint fields that differ, or [] if the event is unchanged."""
+    try:
+        old = event_fingerprint(existing_component, tz)
+    except Exception:
+        return ["unreadable"]
+    new = event_fingerprint(new_component, tz)
+    changed = [key for key in new if old.get(key) != new[key]]
+    if "COLOR" not in existing_component:
+        # Some servers (e.g. mailbox.org) silently drop COLOR. Without this,
+        # every event would look changed and be rewritten on every run.
+        changed = [key for key in changed if key != "color"]
+    return changed
+
+
+def update_event(existing, event, label):
+    """Overwrite an existing calendar object in place. Returns True on success."""
+    old = existing.icalendar_component
+    if "CREATED" in old:
+        event["CREATED"] = old["CREATED"]
+    if "SEQUENCE" in old:
+        event["SEQUENCE"] = old["SEQUENCE"]  # caldav's save() increments it
+    try:
+        existing.data = to_ics(event)
+        existing.save()
+        logger.info(f"🔄 Updated {label}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to update {label}: {e}")
+        return False
+
+
+def stale_removal_allowed(config):
+    """
+    Decide, per feed, whether remove_stale may run. Removal deletes events by
+    UID prefix, so it is refused when the feed's prefix is shared with (or is a
+    prefix of / prefixed by) another feed's prefix or the global uid_prefix used
+    by extra_events -- otherwise it would delete the other source's events.
+    Returns a list of booleans parallel to config["ics_feeds"].
+    """
+    global_prefix = config["uid_prefix"]
+    feeds = config.get("ics_feeds", [])
+    prefixes = [feed.get("uid_prefix", global_prefix) for feed in feeds]
+
+    def overlaps(a, b):
+        return a.startswith(b) or b.startswith(a)
+
+    allowed = []
+    for i, feed in enumerate(feeds):
+        if not feed.get("remove_stale"):
+            allowed.append(False)
+            continue
+        prefix = prefixes[i]
+        others = [global_prefix] + [p for j, p in enumerate(prefixes) if j != i]
+        clash = next((other for other in others if overlaps(prefix, other)), None)
+        if clash is not None:
+            logger.error(
+                f"❌ remove_stale disabled for feed {feed['url']}: its uid_prefix '{prefix}' "
+                f"overlaps with '{clash}' used by another source. Give the feed a unique uid_prefix."
+            )
+        allowed.append(clash is None)
+    return allowed
+
+
+def _event_start_utc(event, tz):
+    """Start of a calendar (caldav) event as aware UTC datetime, or None if unknown."""
+    try:
+        return _as_utc(event.icalendar_component.decoded("DTSTART"), tz)
+    except Exception:
+        return None
+
+
+def remove_stale_events(calendar_events, uid_prefix, expected_uids, tz, now, window_end, dry_run=False):
+    """
+    Delete events with `uid_prefix` that start between now and window_end but
+    whose UID the feed no longer produces. Events that already started are kept,
+    so history is never removed. Returns the number of failed deletions.
+    """
+    failures = 0
+    removed = 0
+    for event in calendar_events:
+        uid = extract_uid(event)
+        if not uid or not uid.startswith(uid_prefix) or uid in expected_uids:
+            continue
+        start = _event_start_utc(event, tz)
+        if start is None or not now <= start <= window_end:
+            continue
+        summary = event.icalendar_component.get("SUMMARY", uid)
+        label = f"'{summary}' on {start.astimezone(tz).date()} (UID {uid})"
+        if dry_run:
+            logger.info(f"💡 [Dry-run] Would remove stale event {label}")
+            removed += 1
+            continue
+        try:
+            event.delete()
+            logger.info(f"🧽 Removed stale event {label}")
+            removed += 1
+        except Exception as e:
+            logger.error(f"❌ Could not remove stale event {label}: {e}")
+            failures += 1
+    if removed:
+        logger.info(f"🧹 {'Would remove' if dry_run else 'Removed'} {removed} stale event(s) for prefix {uid_prefix}")
+    return failures
+
+
+def import_ics_feed(
+    calendar,
+    feed_config,
+    uid_prefix,
+    existing_uids,
+    config=None,
+    dry_run=False,
+    remove_stale=False,
+    calendar_events=None,
+):
+    """
+    Import one ICS feed. Returns the number of events that failed to save,
+    update or delete.
+
+    With feed option update_existing=true, events that are already on the
+    calendar but whose content changed in the feed (or whose emoji, colour,
+    categories or reminder changed in the config) are updated in place.
+
+    With remove_stale=True, events with this feed's prefix that are no longer in
+    the feed are removed afterwards (see remove_stale_events). `calendar_events`
+    is the list of events already on the calendar; it is fetched if not given.
+    """
+    config = config or {}
+    url = feed_config["url"]
+    logger.info(f"📥 Fetching ICS feed: {url}")
+    ics_data = fetch_feed(url, feed_config.get("cleanup_regex", []))
 
     tz = ZoneInfo(config.get("timezone", "Europe/Vienna"))
     now = datetime.now(tz)
-    future_limit_days = config.get("future_event_limit_days", 365) if config else 365
-    until_date = now + timedelta(days=future_limit_days)
-    emoji_map = feed_config.get("emoji_mapping", {})
-    import_locations = feed_config.get("import_locations", None)
+    window_start = now - PAST_GRACE
+    window_end = now + timedelta(days=config.get("future_event_limit_days", 365))
 
-    for event in sorted(cal.events, key=lambda e: e.begin):
-        if not event.begin:
-            logger.info(f"⏭️ Skipping event '{event.name}' due to missing begin date.")
+    title_allowed = _title_filter(feed_config)
+    import_locations = feed_config.get("import_locations")
+    failures = 0
+    expected_uids = set()  # every UID this feed currently produces (after filters)
+    update_existing = bool(feed_config.get("update_existing"))
+    by_uid = None  # uid -> calendar object, built on first use
+
+    for start_utc, all_day, component in feed_occurrences(ics_data, tz, window_start, window_end):
+        day = start_utc.astimezone(tz).date() if not all_day else component.decoded("DTSTART")
+        title = str(component.get("SUMMARY") or "Untitled").strip() or "Untitled"
+
+        if not _location_allowed(component, import_locations):
+            location = str(component.get("LOCATION", "")).replace(" ", "")
+            logger.info(f"⏩ Skipping '{title}' ({day}) due to unmatched location: {location}")
+            continue
+        if not title_allowed(title):
             continue
 
-        raw_extras = str(event.extra).upper()
-        is_yearly = "RRULE:FREQ=YEARLY" in raw_extras
+        uid = deterministic_uid(uid_prefix, title, start_utc)
+        expected_uids.add(uid)
+        if uid in existing_uids and not update_existing:
+            logger.info(f"⏩ Skipped existing event '{title}' on {day} (UID {uid})")
+            continue
 
-        if is_yearly:
-            logger.info(f"🔁 Detected yearly recurring event: {event.name}")
-        dates = (
-            expand_yearly_events(event, until_date)
-            if is_yearly
-            else [event.begin.datetime]
-        )
+        event = build_feed_event(component, uid, title, start_utc, all_day, feed_config, now)
+        label = f"event '{event['SUMMARY']}' on {day}"
 
-        for event_dt in dates:
-            if event_dt.tzinfo is None:
-                event_dt = event_dt.replace(tzinfo=tz)
+        if uid in existing_uids:
+            if by_uid is None:
+                if calendar_events is None:
+                    calendar_events = fetch_all_events(calendar)
+                by_uid = {}
+                for obj in calendar_events:
+                    by_uid.setdefault(extract_uid(obj), obj)
+            existing = by_uid.get(uid)
+            changes = changed_fields(existing.icalendar_component, event, tz) if existing else []
+            if not changes:
+                logger.info(f"⏩ Skipped unchanged event '{title}' on {day} (UID {uid})")
+            elif dry_run:
+                logger.info(f"💡 [Dry-run] Would update {label} (changed: {', '.join(changes)})")
+            elif not update_event(existing, event, f"{label} (changed: {', '.join(changes)})"):
+                failures += 1
+            continue
 
-            if event_dt < now - timedelta(weeks=2):
-                logger.info(
-                    f"⏩ Skipping event '{event.name}' on {event_dt.date()} – event is in the past."
-                )
-                continue
+        if dry_run:
+            logger.info(f"💡 [Dry-run] Would create {label} (UID {uid})")
+        elif not save_event(calendar, event, uid, label):
+            failures += 1
 
-            if event_dt > until_date:
-                logger.info(
-                    f"⏩ Skipping event '{event.name}' on {event_dt.date()} – exceeds future limit."
-                )
-                continue
-
-            location = (event.location or "").replace(" ", "")
-            if import_locations and location:
-                if not any(
-                    loc in location.split(",") for loc in import_locations.split(",")
-                ):
-                    logger.info(
-                        f"⏩ Skipping '{event.name}' ({event_dt.date()}) due to unmatched location: {location}"
-                    )
-                    continue
-
-            original_title = (event.name or "Untitled").strip()
-
-            # ===== NEW: Apply title filter =====
-            filter_config = feed_config.get("filter", {})
-            include_patterns = filter_config.get("include")
-            exclude_patterns = filter_config.get("exclude")
-
-            # Validate mutual exclusivity
-            if include_patterns and exclude_patterns:
-                logger.warning(
-                    "⚠️ Filter error: cannot use both 'include' and 'exclude' for the same feed. "
-                    "Ignoring both filters."
-                )
-                include_patterns = None
-                exclude_patterns = None
-
-            # Apply include filter (must match at least one pattern)
-            if include_patterns:
-                try:
-                    matched = any(
-                        re.search(pattern, original_title)
-                        for pattern in include_patterns
-                    )
-                    if not matched:
-                        logger.info(
-                            f"⏩ Skipping event '{original_title}' – does not match include filter"
-                        )
-                        continue
-                except re.error as e:
-                    logger.warning(
-                        f"⚠️ Invalid include regex pattern for feed {feed_config.get('url')}: {e}"
-                    )
-
-            # Apply exclude filter (must NOT match any pattern)
-            if exclude_patterns:
-                try:
-                    matched = any(
-                        re.search(pattern, original_title)
-                        for pattern in exclude_patterns
-                    )
-                    if matched:
-                        logger.info(
-                            f"⏩ Skipping event '{original_title}' – matches exclude filter"
-                        )
-                        continue
-                except re.error as e:
-                    logger.warning(
-                        f"⚠️ Invalid exclude regex pattern for feed {feed_config.get('url')}: {e}"
-                    )
-
-            emoji = next(
-                (
-                    symbol
-                    for key, symbol in emoji_map.items()
-                    if key != "default" and key in original_title
-                ),
-                emoji_map.get("default", "❓"),
+    if remove_stale:
+        if not expected_uids:
+            logger.warning(
+                f"⚠️ Not removing stale events for {url}: the feed has no events in the sync "
+                "window, which usually means a temporary problem with the feed."
+            )
+        else:
+            if calendar_events is None:
+                calendar_events = fetch_all_events(calendar)
+            failures += remove_stale_events(
+                calendar_events, uid_prefix, expected_uids, tz, now, window_end, dry_run
             )
 
-            emoji_title = f"{emoji} {original_title}".strip()
-            uid = deterministic_uid(uid_prefix, original_title, event_dt)
-
-            if uid in existing_uids:
-                logger.info(
-                    f"⏩ Skipped existing event '{emoji_title}' on {event_dt.date()} (UID {uid})"
-                )
-                continue
-
-            new_event = Event()
-            new_event.name = emoji_title
-            new_event.uid = uid
-            new_event.created = now
-            new_event.description = event.description or ""
-            new_event.location = event.location or None
-            new_event.organizer = event.organizer or None
-
-            # Handle categories with comprehensive configuration support
-            categories = list(event.categories) if event.categories else []
-
-            # Apply category transformations from feed configuration
-            categories_config = feed_config.get("categories", {})
-
-            # Replace if empty (useful for events without categories)
-            if categories_config.get("replace_if_empty") and not categories:
-                categories = categories_config["replace_if_empty"]
-
-            # Prepend categories (add to beginning of list)
-            if "prepend" in categories_config:
-                categories = categories_config["prepend"] + categories
-
-            # Append categories (add to end of list)
-            if "append" in categories_config:
-                categories.extend(categories_config["append"])
-
-            # Remove unwanted categories
-            if "remove" in categories_config:
-                categories = [
-                    cat for cat in categories if cat not in categories_config["remove"]
-                ]
-
-            # Deduplicate if enabled (default: true)
-            if categories_config.get("deduplicate", True):
-                seen = set()
-                unique_categories = []
-                for cat in categories:
-                    if cat not in seen:
-                        seen.add(cat)
-                        unique_categories.append(cat)
-                categories = unique_categories
-
-            new_event.categories = categories if categories else None
-
-            # Set event color if configured (RFC 7986 color property)
-            if "calendar_color" in feed_config:
-                color = feed_config["calendar_color"]
-                new_event.extra.append(ContentLine(name="COLOR", value=color))
-                logger.debug(f"Set event color to {color} for {new_event.name}")
-
-            new_event.url = event.url or None
-
-            if event.all_day:
-                new_event.begin = event_dt.date()
-                new_event.make_all_day()
-            else:
-                new_event.begin = event_dt
-
-            if event.end:
-                end_dt = event.end.datetime
-                if end_dt.tzinfo is None:
-                    end_dt = end_dt.replace(tzinfo=tz)
-                if end_dt > event_dt:
-                    new_event.end = end_dt
-
-            if hasattr(event, "alarms") and event.alarms:
-                new_event.alarms = list(event.alarms)
-            else:
-                reminder = feed_config.get("default_reminder", None)
-                if reminder is not None:
-                    try:
-                        reminder_delta = parse_alarm(reminder)
-                        new_event.alarms = [DisplayAlarm(trigger=reminder_delta)]
-                    except Exception as e:
-                        logger.warning(f"⚠️ Invalid reminder format '{reminder}': {e}")
-
-            if dry_run:
-                logger.info(
-                    f"💡 [Dry-run] Would create event '{emoji_title}' on {event_dt.date()} (UID {uid})"
-                )
-            else:
-                try:
-                    calendar.save_event(new_event.serialize())
-                    logger.info(
-                        f"✅ Created event '{emoji_title}' on {event_dt.date()}"
-                    )
-                except Exception as e:
-                    if "409" in str(e):
-                        logger.warning(
-                            f"⚠️ Event already exists (409 Conflict): '{emoji_title}' on {event_dt.date()}. Attempting deduplication."
-                        )
-                        try:
-                            existing = next(
-                                (
-                                    ev
-                                    for ev in calendar.events()
-                                    if extract_uid(ev) == uid
-                                ),
-                                None,
-                            )
-                            if existing:
-                                existing.delete()
-                                calendar.save_event(new_event.serialize())
-                                logger.info(
-                                    f"♻️ Replaced duplicate event '{emoji_title}' after deduplication"
-                                )
-                            else:
-                                logger.warning(
-                                    f"⚠️ Could not find existing event with UID {uid} to deduplicate"
-                                )
-                        except Exception as dedup_error:
-                            logger.error(
-                                f"❌ Deduplication failed for '{emoji_title}': {dedup_error}"
-                            )
-                    else:
-                        logger.error(f"❌ Failed to create event '{emoji_title}': {e}")
+    return failures

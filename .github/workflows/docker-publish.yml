@@ -16,7 +16,29 @@ env:
   VERSION: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.VERSION }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest -v
+
   build-and-push-image:
+    needs: test  # never publish an image whose tests fail
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,7 +65,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: latest=false
-          tags: type=raw,value=${{ env.VERSION }}
+          # The release tag (e.g. v1.5.0), plus "latest" for tag pushes only, so a
+          # manual re-build of an older tag never moves "latest" backwards.
+          tags: |
+            type=raw,value=${{ env.VERSION }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' }}
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
@@ -52,3 +78,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
