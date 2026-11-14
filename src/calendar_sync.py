@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -13,6 +14,8 @@ from utils import (
     fetch_all_events,
     get_existing_events,
     import_ics_feed,
+    save_event,
+    stale_removal_allowed,
 )
 
 LOGFORMAT = "%(log_color)s%(levelname)8s:%(reset)s %(message)s"
@@ -56,7 +59,7 @@ def main():
     config_path = Path(args.config)
     if not config_path.exists():
         logger.error(f"❌ Config file '{args.config}' not found.")
-        return
+        return 1
 
     with open(config_path, "r") as f:
         config = json.load(f)
@@ -85,6 +88,8 @@ def main():
             all_events=all_events,
             multiple_prefixes=prefixes,
         )
+
+    failures = 0
 
     # Handle imports
     if args.import_events:
@@ -120,36 +125,43 @@ def main():
         )
 
         for event in extra_events:
-            if event.uid in existing_uids:
-                logger.info(
-                    f"⏭️ Skipping extra event '{event.name}' (UID {event.uid}) – already exists."
-                )
-                continue
-            if args.dry_run:
-                logger.info(
-                    f"💡 [Dry-run] Would create extra event '{event.name}' on {event.begin} (UID {event.uid})"
-                )
-            else:
-                try:
-                    calendar.save_event(event.serialize())
-                    logger.info(
-                        f"✅ Created extra event '{event.name}' on {event.begin}"
-                    )
-                except Exception as e:
-                    logger.error(f"❌ Failed to create extra event '{event.name}': {e}")
+            uid = str(event["UID"])
+            label = f"extra event '{event['SUMMARY']}' on {event.decoded('DTSTART')}"
+            if uid in existing_uids:
+                logger.info(f"⏭️ Skipping {label} (UID {uid}) – already exists.")
+            elif args.dry_run:
+                logger.info(f"💡 [Dry-run] Would create {label} (UID {uid})")
+            elif not save_event(calendar, event, uid, label):
+                failures += 1
 
         # Import ICS feeds (respect per-feed uid_prefix)
-        for feed_config in config["ics_feeds"]:
+        remove_stale = stale_removal_allowed(config)
+        failures += sum(
+            1 for feed, ok in zip(config["ics_feeds"], remove_stale) if feed.get("remove_stale") and not ok
+        )
+        for feed_config, feed_remove_stale in zip(config["ics_feeds"], remove_stale):
             feed_prefix = feed_config.get("uid_prefix", config["uid_prefix"])
-            import_ics_feed(
-                calendar,
-                feed_config,
-                feed_prefix,
-                existing_uids,
-                config=config,
-                dry_run=args.dry_run,
-            )
+            # A broken feed must not prevent the remaining feeds from syncing
+            try:
+                failures += import_ics_feed(
+                    calendar,
+                    feed_config,
+                    feed_prefix,
+                    existing_uids,
+                    config=config,
+                    dry_run=args.dry_run,
+                    remove_stale=feed_remove_stale,
+                    calendar_events=all_events,
+                )
+            except Exception as e:
+                logger.error(f"❌ Failed to import feed {feed_config.get('url')}: {e}")
+                failures += 1
+
+    if failures:
+        logger.error(f"❌ Finished with {failures} error(s)")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

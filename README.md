@@ -15,9 +15,11 @@
 It supports features such as:
 - ✅ Deterministic UID generation for clean deduplication
 - 📅 Emoji mapping for more readable calendar events
-- 🔁 Automatic expansion of `RRULE:FREQ=YEARLY` events
+- 🔁 Automatic expansion of recurring events (daily, weekly, monthly, yearly, …)
 - 🔁 Full support for recurring events (e.g., yearly holidays) and custom extra events (Mother's Day, Advent Sundays, etc.)
 - 🧼 Cleanup mode with multi-prefix support (`--cleanup PREFIX1,PREFIX2`)
+- 🧹 Optional removal of rescheduled or cancelled events per feed (`remove_stale`), keeping your history
+- 🔄 Optional in-place updates when a feed changes an event's details (`update_existing`)
 - 📍 Location-based filtering (e.g., for regional holidays in Austria)
 - 🔍 Event title filtering with regex (include/exclude patterns)
 - 🐳 Docker deployment for simple automation
@@ -50,7 +52,7 @@ ___
 
 - 🔁 Sync multiple ICS feeds to any CalDAV calendar
 - 🧠 Deterministic UID generation & deduplication
-- 🔁 Automatic expansion of YEARLY recurring events
+- 🔁 Automatic expansion of all recurring events (`RRULE`, `RDATE`, `EXDATE`, moved occurrences)
 - 📍 Location-based filtering for region-specific holidays
 - 🔍 Event title filtering with regex patterns (include/exclude)
 - 🧹 Optional cleanup of old imported events
@@ -79,11 +81,26 @@ python src/calendar_sync.py --cleanup --config /path/to/another_config.json
 
 ### With Docker Compose
 
-First, build the container:
+A ready-made image for `linux/amd64` and `linux/arm64` is published to the GitHub Container Registry with every release: `ghcr.io/magicdude4eva/calendar-sync` (tags: `latest` and each release, e.g. `v1.5.0`).
+
+You only need a `docker-compose.yml` and your `config.json` in one directory:
+
+```yaml
+services:
+  calendar-sync:
+    image: ghcr.io/magicdude4eva/calendar-sync:latest
+    volumes:
+      - ./config.json:/app/config.json:ro
+    command: ["--import"]
+```
+
+Fetch the latest image (do this before each run, e.g. in your scheduled task, to stay up to date):
 
 ```bash
-docker-compose build
+docker-compose pull
 ```
+
+To build the image yourself from a clone of this repository instead, use `docker-compose build`.
 
 Then run the sync:
 
@@ -160,7 +177,7 @@ Example config:
 - Skips, adds, or replaces events as needed
 - Uses emoji mappings to prefix event names
 - All-day events are handled properly (no time zone shift)
-- Recurring `RRULE:FREQ=YEARLY` events are expanded into individual years
+- Recurring events are expanded into individual occurrences within the sync window
 - Events can be filtered by `LOCATION` using `import_locations`
 
 🗺️ For `import_locations`, configure it per feed. For example:
@@ -414,10 +431,10 @@ Add `calendar_color` to any feed configuration:
 - ✅ **Thunderbird**: Supports RFC 7986 color property
 - ✅ **Evolution**: Supports RFC 7986 color property
 - ✅ **Nextcloud Calendar**: Supports RFC 7986 color property
-- ✅ **mailbox.org**: Supports RFC 7986 color property
+- ❌ **mailbox.org**: The server drops the `COLOR` property when events are saved, so per-event colours are not stored. Use a separate calendar per feed, or categories with client-side colouring, instead.
 - ⚠️ **Some mobile clients**: May not support RFC 7986 yet
 
-**Note**: Even if a client doesn't support RFC 7986, the color information is stored in the event and won't cause issues.
+**Note**: Even if a client doesn't support RFC 7986, the color information is stored in the event (unless the server drops it) and won't cause issues.
 
 #### **Fallback Behavior**
 
@@ -523,14 +540,68 @@ The `default_reminder` field specifies when you should receive a notification fo
 }
 ```
 
-### 🗓️ Support for Yearly Recurring Events (`RRULE:FREQ=YEARLY`)
-The script automatically expands ICS events with `RRULE:FREQ=YEARLY` rules into individual event instances for each year, up to the configured future limit (`future_event_limit_days`). This ensures recurring events like public holidays or anniversaries are correctly synced across multiple years.
+### 🗓️ Support for Recurring Events
+Recurring events in a feed are expanded into individual events for every occurrence between two weeks ago and the configured future limit (`future_event_limit_days`). Expansion uses [`recurring-ical-events`](https://github.com/niccokunzmann/python-recurring-ical-events), so it follows RFC 5545:
 
-**Behavior:**
-- Detects yearly recurring events by scanning raw `RRULE` data.
-- Expands the base event for each year (e.g. from 2025 to 2026).
-- Skips events in the past or beyond the future limit.
-- Deduplicates intelligently using UID hashing per year.
+- Any `RRULE` frequency (daily, weekly, monthly, yearly) including `INTERVAL`, `COUNT`, `UNTIL` and `BYDAY`-style rules
+- Extra dates (`RDATE`) and cancelled dates (`EXDATE`)
+- Single occurrences that were moved or renamed (`RECURRENCE-ID`)
+- Dates that do not exist in a given year (e.g. 29 February) are skipped
+
+Each occurrence becomes its own event with a UID derived from its title and start time, so filters, emoji mapping, categories and deduplication work per occurrence. Reminders defined on the recurring event are copied to every occurrence.
+
+> **Note:** Unbounded rules (e.g. a daily event with no end) create one event per occurrence up to `future_event_limit_days`. Lower that limit for feeds with frequent recurring events.
+
+### 🧹 Removing Stale Events (`remove_stale`)
+By default, events are only ever added. If a feed reschedules or cancels an event, the old copy stays in your calendar. Set `"remove_stale": true` on a feed to remove events the feed no longer contains:
+
+```json
+{
+  "url": "https://example.com/hockey.ics",
+  "uid_prefix": "HOCKEY-",
+  "remove_stale": true
+}
+```
+
+After importing the feed, every calendar event with that feed's `uid_prefix` is compared against the events the feed currently produces. An event is removed only if **all** of these apply:
+
+- its UID starts with the feed's `uid_prefix`
+- it is no longer in the feed, or is now excluded by `filter` / `import_locations`
+- it has **not started yet** and starts within `future_event_limit_days`
+
+Past events are never removed, so your history is kept even for feeds that drop past events.
+
+**Safety checks:**
+- Nothing is removed if the feed cannot be downloaded or parsed, or if it suddenly contains no events at all in the sync window (usually a temporary problem on the provider's side).
+- `remove_stale` requires a `uid_prefix` that is unique to the feed. It is refused (and reported as an error) if the prefix is the global `uid_prefix` used by `extra_events`, is shared with another feed, or overlaps with one (e.g. `F1-` and `F1-SPRINT-`).
+- Use `--dry-run` first to see what would be removed.
+
+> **Tip:** If you add a `filter` to an existing feed, `remove_stale` also removes upcoming events that were imported before and are now filtered out.
+
+This replaces the need to run `--cleanup` before every `--import`.
+
+### 🔄 Updating Changed Events (`update_existing`)
+Events are identified by their title and start time. If a feed changes anything else about an event (end time, location, description, URL, categories, reminders), the copy in your calendar stays outdated by default. Set `"update_existing": true` on a feed to update such events in place:
+
+```json
+{
+  "url": "https://example.com/hockey.ics",
+  "uid_prefix": "HOCKEY-",
+  "update_existing": true
+}
+```
+
+This also applies configuration changes to events that were already imported, e.g. a new `emoji_mapping`, `categories`, `calendar_color` or `default_reminder`.
+
+**How it works:**
+- Each event already in your calendar is compared with what the feed produces now. Only meaningful content is compared: start, end, title, description, location, URL, organizer, categories, colour and reminder triggers. Timestamps, `SEQUENCE` and properties added by your server or client are ignored.
+- Changed events are updated in place: the UID and creation time are kept and `SEQUENCE` is increased, so calendar apps pick up the change.
+- `--dry-run` lists what would be updated and which fields changed.
+- Colours are only compared if your server stores them (mailbox.org, for example, drops `COLOR`).
+
+> **Note:** Updates overwrite the event, including changes you made to it by hand in your calendar app (e.g. an extra reminder). Leave this option off for feeds whose events you edit manually.
+
+A change to an event's **title or start time** creates a new event instead (its identity changed). Combine with `remove_stale` to have the old copy removed.
 
 ### ➕ Support for Custom Extra Events
 In addition to ICS feeds, you can define your own custom events using the `extra_events` entry in `config.json`.
@@ -552,6 +623,8 @@ This allows you to add things like:
 | `N.Weekday.Month`          | Nth weekday of a month                      | `2.Sunday.5` → 2nd Sunday in May |
 | `-N.Weekday.Month`         | Nth weekday from end of month               | `-1.Sunday.3` → last Sunday in March |
 | `DD.MM.fixed`              | Fixed date                                  | `31.10.fixed` → 31st October     |
+| `N.Weekday.before.DD.MM`   | Nth weekday before a date (date excluded)   | `1.Sunday.before.25.12` → 4th Advent |
+| `N.Weekday.after.DD.MM`    | Nth weekday after a date (date excluded)    | `1.Thursday.after.20.11` → Thursday after 20th November |
 
 **Sample:**
 
@@ -564,10 +637,10 @@ This allows you to add things like:
       "🧾 Steuererklärung:30.6.fixed",
       "🌒 Sommerzeit endet:-1.Sunday.10",
       "🎃 Halloween:31.10.fixed",
-      "🕯️ 1. Advent:-4.Sunday.12",
-      "🕯️ 2. Advent:-3.Sunday.12",
-      "🕯️ 3. Advent:-2.Sunday.12",
-      "🕯️ 4. Advent:-1.Sunday.12",
+      "🕯️ 1. Advent:4.Sunday.before.25.12",
+      "🕯️ 2. Advent:3.Sunday.before.25.12",
+      "🕯️ 3. Advent:2.Sunday.before.25.12",
+      "🕯️ 4. Advent:1.Sunday.before.25.12",
       "👹 Krampusnacht:5.12.fixed",
       "🎅 Nikolaus:6.12.fixed"    
       ],
@@ -592,12 +665,27 @@ calendar-sync/
 ├── src/
 │   ├── calendar_sync.py      # Entry script
 │   └── utils.py              # Core sync logic
+├── tests/                    # pytest suite (no network or CalDAV server needed)
 ├── config.json               # Configuration
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
+├── requirements-dev.txt      # Test dependencies
 └── README.md
 ```
+
+---
+
+## 🧪 Running Tests
+
+The test suite uses an in-memory CalDAV calendar and fake ICS feeds, so it runs offline and never touches a real calendar:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Tests also run automatically on every push and pull request via GitHub Actions.
 
 ---
 
