@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 ![GitHub forks](https://img.shields.io/github/forks/magicdude4eva/calendar-sync?style=social)
 ![GitHub issues](https://img.shields.io/github/issues/magicdude4eva/calendar-sync)
-[![GitHub last commit](https://img.shields.io/github/last-commit/magicdude4eva/calendar-sync.svg)](https://github.com/magicdude4eva/calendar-sync/commits/master)
+[![GitHub last commit](https://img.shields.io/github/last-commit/magicdude4eva/calendar-sync.svg)](https://github.com/magicdude4eva/calendar-sync/commits/main)
 ![License](https://img.shields.io/github/license/magicdude4eva/calendar-sync)
 
 `calendar-sync` is a flexible utility to sync one or more ICS feeds (iCalendar) into a CalDAV-compatible calendar — ideal for mailbox.org, Nextcloud, Synology, and more.
